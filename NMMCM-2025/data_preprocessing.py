@@ -1,323 +1,453 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
+import os
 import pandas as pd
 import numpy as np
-import os
 import glob
 import re
-import datetime
+from datetime import datetime
+import matplotlib.pyplot as plt
+from pathlib import Path
+import geopandas as gpd
+import rasterio
+from rasterio.plot import show
+import warnings
+warnings.filterwarnings('ignore')
 
-# 附件1：气象数据处理
-def read_weather_data(file_path):
-    """读取单个气象数据文件
+class DataPreprocessor:
+    def __init__(self, base_path="附件"):
+        """
+        数据预处理类
 
-    Args:
-        file_path: 气象数据文件路径
+        参数:
+        base_path: 附件数据的基础路径
+        """
+        self.base_path = base_path
+        # 创建输出目录
+        self.output_dir = "processed_data"
+        os.makedirs(self.output_dir, exist_ok=True)
 
-    Returns:
-        DataFrame: 包含气象数据的DataFrame
-    """
-    with open(file_path, 'r', encoding='utf-8') as f:
-        lines = f.readlines()
+    def process_meteorological_data(self, years=None, cities=None):
+        """
+        处理气象数据（附件1）
 
-    # 解析数据
-    data = []
-    for line in lines:
-        if line.strip() and not line.startswith('#'):
-            data.append(line.strip().split())
+        参数:
+        years: 需要处理的年份列表，如果为None则处理所有年份
+        cities: 需要处理的城市站点列表，如果为None则处理所有站点
 
-    # 确保有数据可以处理
-    if len(data) < 2:
-        print(f"警告: 文件 {file_path} 中没有足够的数据行")
-        return pd.DataFrame()
+        返回:
+        处理后的气象数据DataFrame
+        """
+        print("开始处理气象数据...")
 
-    # 转换为DataFrame
-    try:
-        df = pd.DataFrame(data[1:], columns=data[0])
+        # 气象数据路径
+        meteo_base_path = os.path.join(self.base_path, "附件1：中国气象数据")
+
+        # 如果未指定年份，获取所有年份文件夹
+        if years is None:
+            years = [d for d in os.listdir(meteo_base_path)
+                     if os.path.isdir(os.path.join(meteo_base_path, d)) and 'china_isd_lite' in d]
+            years = [y.split('_')[-1] for y in years]
+
+        all_data = []
+
+        for year in years:
+            print(f"处理{year}年的气象数据...")
+            year_path = os.path.join(meteo_base_path, f"china_isd_lite_{year}")
+
+            # 获取该年份下所有站点文件
+            station_files = glob.glob(os.path.join(year_path, "*"))
+
+            # 如果指定了城市，只处理这些城市的站点
+            if cities is not None:
+                # 这里需要站点ID与城市的映射关系，暂时跳过筛选
+                pass
+
+            for station_file in station_files:
+                try:
+                    # 提取站点ID
+                    station_id = os.path.basename(station_file).split('-')[0]
+
+                    # 读取数据
+                    with open(station_file, 'r') as f:
+                        lines = f.readlines()
+
+                    # 解析数据
+                    for line in lines:
+                        parts = line.strip().split()
+                        if len(parts) >= 9:  # 确保有足够的数据列
+                            year, month, day, hour = parts[0], parts[1], parts[2], parts[3]
+
+                            # 温度、露点、气压、风向、风速、云量、降水量
+                            temp = float(parts[4]) / 10.0 if parts[4] != '-9999' else np.nan  # 温度，除以10转为摄氏度
+                            dewp = float(parts[5]) / 10.0 if parts[5] != '-9999' else np.nan  # 露点，除以10转为摄氏度
+                            pressure = float(parts[6]) / 10.0 if parts[6] != '-9999' else np.nan  # 气压，除以10转为百帕
+                            wind_dir = float(parts[7]) if parts[7] != '-9999' else np.nan  # 风向
+                            wind_speed = float(parts[8]) / 10.0 if parts[8] != '-9999' else np.nan  # 风速，除以10转为米/秒
+
+                            # 云量和降水量可能不存在
+                            cloud = float(parts[9]) if len(parts) > 9 and parts[9] != '-9999' else np.nan
+                            precip = float(parts[10]) / 10.0 if len(parts) > 10 and parts[10] != '-9999' else np.nan  # 降水量，除以10转为毫米
+
+                            # 构建数据行
+                            data_row = {
+                                'station_id': station_id,
+                                'datetime': f"{year}-{month.zfill(2)}-{day.zfill(2)} {hour.zfill(2)}:00:00",
+                                'temperature': temp,
+                                'dew_point': dewp,
+                                'pressure': pressure,
+                                'wind_direction': wind_dir,
+                                'wind_speed': wind_speed,
+                                'cloud_cover': cloud,
+                                'precipitation': precip
+                            }
+                            all_data.append(data_row)
+                except Exception as e:
+                    print(f"处理文件{station_file}时出错: {e}")
+
+        # 转换为DataFrame
+        df = pd.DataFrame(all_data)
+        df['datetime'] = pd.to_datetime(df['datetime'])
+
+        # 保存处理后的数据
+        output_file = os.path.join(self.output_dir, "附件1_meteorological_data.csv")
+        df.to_csv(output_file, index=False)
+        print(f"气象数据处理完成，已保存到{output_file}")
+
         return df
-    except Exception as e:
-        print(f"处理文件 {file_path} 时出错: {str(e)}")
-        return pd.DataFrame()
 
-def process_weather_data(base_path):
-    """处理附件1的气象数据
+    def process_marathon_history(self):
+        """
+        处理马拉松赛历数据（附件12）
 
-    Args:
-        base_path: 附件1的根目录路径
+        返回:
+        处理后的马拉松赛历数据DataFrame
+        """
+        print("开始处理马拉松赛历数据...")
 
-    Returns:
-        DataFrame: 合并后的气象数据
-    """
-    print("开始处理气象数据...")
+        # 马拉松赛历数据路径
+        marathon_path = os.path.join(self.base_path, "附件12：马拉松赛历数据", "马拉松赛历数据.xlsx")
 
-    # 检查路径是否存在
-    if not os.path.exists(base_path):
-        print(f"错误: 路径 {base_path} 不存在")
-        return pd.DataFrame()
+        try:
+            # 读取Excel文件
+            df = pd.read_excel(marathon_path)
 
-    # 获取所有数据文件
-    all_files = glob.glob(os.path.join(base_path, '*', '*'))
-    if not all_files:
-        print(f"警告: 在 {base_path} 下未找到任何文件")
-        return pd.DataFrame()
+            # 数据清洗和转换
+            # 1. 处理日期格式
+            if '比赛日期' in df.columns:
+                df['比赛日期'] = pd.to_datetime(df['比赛日期'], errors='coerce')
 
-    print(f"找到 {len(all_files)} 个气象数据文件")
+            # 2. 处理数值型数据
+            numeric_columns = ['报名人数', '完赛人数', '报名费']
+            for col in numeric_columns:
+                if col in df.columns:
+                    df[col] = pd.to_numeric(df[col], errors='coerce')
 
-    # 处理每个文件
-    all_data = []
-    for file in all_files:
-        print(f"处理文件: {file}")
-        df = read_weather_data(file)
+            # 3. 计算完赛率
+            if '报名人数' in df.columns and '完赛人数' in df.columns:
+                df['完赛率'] = df['完赛人数'] / df['报名人数']
 
-        if df.empty:
-            continue
+            # 4. 提取年份和月份
+            if '比赛日期' in df.columns:
+                df['年份'] = df['比赛日期'].dt.year
+                df['月份'] = df['比赛日期'].dt.month
 
-        # 提取年份和站点信息
-        year_match = re.search(r'\\(\d{4})\\', file)
-        year = year_match.group(1) if year_match else 'unknown'
+            # 保存处理后的数据
+            output_file = os.path.join(self.output_dir, "附件12_marathon_history.csv")
+            df.to_csv(output_file, index=False)
+            print(f"马拉松赛历数据处理完成，已保存到{output_file}")
 
-        station_match = re.search(r'\\([^\\]+)$', file)
-        station = os.path.basename(file) if not station_match else station_match.group(1)
+            return df
 
-        # 添加年份和站点列
-        df['年份'] = year
-        df['站点'] = station
+        except Exception as e:
+            print(f"处理马拉松赛历数据时出错: {e}")
+            return None
 
-        # 提取关键气象要素
-        # 根据数据格式调整列名
-        weather_columns = {
-            '气温': ['TEM', 'TEMP', 'T', '温度', 'Temperature'],
-            '气压': ['PRS', 'PRES', 'P', '气压', 'Pressure'],
-            '露点': ['DPT', 'DEW', 'D', '露点', 'Dew Point'],
-            '风向': ['WIN_D', 'WD', '风向', 'Wind Direction'],
-            '风速': ['WIN_S', 'WS', '风速', 'Wind Speed'],
-            '云量': ['CLD', 'CLOUD', 'C', '云量', 'Cloud Cover'],
-            '降水量': ['PRE', 'RAIN', 'R', '降水', 'Precipitation']
+    def process_subway_data(self):
+        """
+        兼容处理2021-2024年轨道交通客运量数据（附件2）
+        返回：标准化后的DataFrame，字段包括：城市、年份、月份、客运量（万人次）
+        """
+        print("开始处理轨道交通客运量数据...")
+        import re
+        all_data = []
+        years = ['2021', '2022', '2023', '2024']
+        base_path = os.path.join(self.base_path, "附件2：2021-2024年我国主要城市逐月轨道交通客运量数据")
+        for year in years:
+            file_path = os.path.join(base_path, f"{year}.xlsx")
+            if not os.path.exists(file_path):
+                print(f"未找到{file_path}")
+                continue
+            xls = pd.ExcelFile(file_path)
+            # 2021/2022年：每月一个sheet，2023/2024年：每月一个sheet，2023年3月起多一列
+            for sheet_name in xls.sheet_names:
+                try:
+                    df = pd.read_excel(xls, sheet_name=sheet_name, dtype=str)
+                except Exception as e:
+                    print(f"读取{year}年{sheet_name}失败: {e}")
+                    continue
+                # 标题行模糊匹配
+                col_map = {}
+                for col in df.columns:
+                    if re.search("城市", col):
+                        col_map['城市'] = col
+                    elif re.search("客运量", col):
+                        col_map['客运量'] = col
+                    elif re.search("序", col):
+                        col_map['序号'] = col
+                # 跳过无效sheet
+                if not col_map or '城市' not in col_map or '客运量' not in col_map:
+                    continue
+                # 只保留有效数据行
+                for _, row in df.iterrows():
+                    city = str(row[col_map['城市']]).strip()
+                    if '总' in city or city == '' or city == 'nan':
+                        continue
+                    try:
+                        value = float(str(row[col_map['客运量']]).replace(',', '').replace(' ', ''))
+                    except:
+                        value = None
+                    # 解析月份
+                    month = None
+                    # sheet名可能为"6月""2023年6月"等
+                    m = re.search(r'(\d+)', sheet_name)
+                    if m:
+                        month = int(m.group(1))
+                    all_data.append({
+                        '城市': city,
+                        '年份': int(year),
+                        '月份': month,
+                        '客运量_万人次': value
+                    })
+        # 合并所有年份
+        df_all = pd.DataFrame(all_data)
+        # 去除无效行
+        df_all = df_all.dropna(subset=['城市', '年份', '月份', '客运量_万人次'])
+        # 保存
+        output_file = os.path.join(self.output_dir, "附件2_subway_traffic.csv")
+        df_all.to_csv(output_file, index=False)
+        print(f"轨道交通客运量数据处理完成，已保存到{output_file}")
+        return df_all
+
+    def process_population_data(self):
+        """
+        处理人口普查数据（附件3）
+
+        返回:
+        处理后的人口数据DataFrame
+        """
+        print("开始处理人口普查数据...")
+
+        # 人口普查数据路径
+        pop_base_path = os.path.join(self.base_path, "附件3：我国省市两级第五、六、七次人口普查数据（包括年龄和性别）", "excel")
+
+        # 处理省级数据
+        province_dfs = []
+        city_dfs = []
+
+        # 处理五普、六普、七普数据
+        census_names = ['五普', '六普', '七普']
+        census_years = [2000, 2010, 2020]  # 对应的普查年份
+
+        for census, year in zip(census_names, census_years):
+            # 省级数据
+            province_file = os.path.join(pop_base_path, f"【{census}】分年龄、性别的人口_省.xls")
+            # 市级数据
+            city_file = os.path.join(pop_base_path, f"【{census}】分年龄、性别的人口_地级市.xls")
+
+            try:
+                # 读取省级数据
+                prov_df = pd.read_excel(province_file)
+                prov_df['普查年份'] = year
+                prov_df['普查名称'] = census
+                province_dfs.append(prov_df)
+
+                # 读取市级数据
+                city_df = pd.read_excel(city_file)
+                city_df['普查年份'] = year
+                city_df['普查名称'] = census
+                city_dfs.append(city_df)
+
+            except Exception as e:
+                print(f"处理{census}人口数据时出错: {e}")
+
+        # 合并所有普查的数据
+        if province_dfs:
+            province_combined = pd.concat(province_dfs, ignore_index=True)
+            output_file = os.path.join(self.output_dir, "附件3_population_province.csv")
+            province_combined.to_csv(output_file, index=False)
+            print(f"省级人口数据处理完成，已保存到{output_file}")
+
+        if city_dfs:
+            city_combined = pd.concat(city_dfs, ignore_index=True)
+            output_file = os.path.join(self.output_dir, "附件3_population_city.csv")
+            city_combined.to_csv(output_file, index=False)
+            print(f"市级人口数据处理完成，已保存到{output_file}")
+
+        # 返回市级数据，因为主要分析城市
+        return city_combined if city_dfs else None
+
+    def process_population_density(self, year=2020):
+        """
+        处理人口密度数据（附件4）
+
+        参数:
+        year: 需要处理的年份，默认为2020年
+
+        返回:
+        处理后的人口密度数据
+        """
+        print(f"开始处理{year}年人口密度数据...")
+
+        # 人口密度数据路径
+        density_base_path = os.path.join(self.base_path, "附件4：全国人口密度分布",
+                                        "中国人口密度公里格网栅格数据", f"china{year}")
+
+        try:
+            # 读取栅格数据
+            # 注意：这里需要使用rasterio库读取.adf格式的栅格数据
+            raster_file = os.path.join(density_base_path, "w001001.adf")
+
+            with rasterio.open(raster_file) as src:
+                # 读取栅格数据
+                population_density = src.read(1)
+
+                # 获取元数据
+                meta = src.meta
+
+                print(f"{year}年人口密度数据读取成功，形状为{population_density.shape}")
+
+                # 这里可以进行进一步的处理，如裁剪感兴趣区域、重采样等
+
+                # 保存处理后的数据
+                # 由于栅格数据较大，这里只保存一些统计信息
+                stats = {
+                    'min': np.nanmin(population_density),
+                    'max': np.nanmax(population_density),
+                    'mean': np.nanmean(population_density),
+                    'median': np.nanmedian(population_density),
+                    'std': np.nanstd(population_density)
+                }
+
+                stats_df = pd.DataFrame([stats])
+                stats_df['year'] = year
+
+                output_file = os.path.join(self.output_dir, f"附件4_population_density_stats_{year}.csv")
+                stats_df.to_csv(output_file, index=False)
+                print(f"{year}年人口密度统计数据已保存到{output_file}")
+
+                return population_density, meta
+
+        except Exception as e:
+            print(f"处理{year}年人口密度数据时出错: {e}")
+            return None, None
+
+    def process_ultra_marathon_data(self):
+        """
+        处理超级马拉松数据（附件11）
+
+        返回:
+        处理后的超级马拉松数据DataFrame
+        """
+        print("开始处理超级马拉松数据...")
+
+        # 超级马拉松数据路径
+        ultra_path = os.path.join(self.base_path, "附件11：超级马拉松跑的大数据集", "TWO_CENTURIES_OF_UM_RACES.csv")
+
+        try:
+            # 读取CSV文件（可能很大，使用分块读取）
+            chunks = pd.read_csv(ultra_path, chunksize=100000)
+
+            # 处理第一个块以获取列名
+            first_chunk = next(chunks)
+            processed_chunks = [first_chunk]
+
+            # 处理剩余的块
+            for chunk in chunks:
+                processed_chunks.append(chunk)
+
+            # 合并所有块
+            df = pd.concat(processed_chunks, ignore_index=True)
+
+            # 数据清洗和转换
+            # 1. 处理日期格式
+            date_columns = ['date', 'end_date']
+            for col in date_columns:
+                if col in df.columns:
+                    df[col] = pd.to_datetime(df[col], errors='coerce')
+
+            # 2. 提取年份和月份
+            if 'date' in df.columns:
+                df['year'] = df['date'].dt.year
+                df['month'] = df['date'].dt.month
+
+            # 3. 计算比赛持续时间
+            if 'date' in df.columns and 'end_date' in df.columns:
+                df['duration_days'] = (df['end_date'] - df['date']).dt.days + 1
+
+            # 保存处理后的数据（由于数据可能很大，这里只保存一个样本）
+            sample_df = df.sample(n=min(10000, len(df)), random_state=42)
+            output_file = os.path.join(self.output_dir, "附件11_ultra_marathon_sample.csv")
+            sample_df.to_csv(output_file, index=False)
+            print(f"超级马拉松数据处理完成，已保存样本到{output_file}")
+
+            # 保存完整数据
+            output_file_full = os.path.join(self.output_dir, "附件11_ultra_marathon_full.csv")
+            df.to_csv(output_file_full, index=False)
+            print(f"超级马拉松完整数据已保存到{output_file_full}")
+
+            return df
+
+        except Exception as e:
+            print(f"处理超级马拉松数据时出错: {e}")
+            return None
+
+    def run_all_preprocessing(self):
+        """
+        运行所有预处理步骤
+        """
+        # 创建处理后的数据目录
+        os.makedirs(self.output_dir, exist_ok=True)
+
+        # 处理气象数据（选择近几年的数据）
+        recent_years = ['2020', '2021', '2022', '2023']
+        meteo_data = self.process_meteorological_data(years=recent_years)
+
+        # 处理轨道交通客运量数据
+        subway_data = self.process_subway_data()
+
+        # 处理人口普查数据
+        population_data = self.process_population_data()
+
+        # 处理人口密度数据（2020年）
+        density_data, meta = self.process_population_density(year=2020)
+
+        # 处理超级马拉松数据
+        ultra_data = self.process_ultra_marathon_data()
+
+        # 处理马拉松赛历数据
+        marathon_data = self.process_marathon_history()
+
+        print("所有数据预处理完成！")
+
+        # 返回所有处理后的数据
+        return {
+            'meteorological': meteo_data,
+            'marathon_history': marathon_data,
+            'subway_traffic': subway_data,
+            'population': population_data,
+            'population_density': density_data,
+            'ultra_marathon': ultra_data
         }
 
-        # 标准化列名
-        for standard_name, possible_names in weather_columns.items():
-            for col in df.columns:
-                if any(possible_name in col for possible_name in possible_names):
-                    df.rename(columns={col: standard_name}, inplace=True)
-                    break
 
-        all_data.append(df)
+if __name__ == "__main__":
+    # 设置附件基础路径
+    base_path = "附件"
 
-    # 合并所有数据
-    if all_data:
-        combined_df = pd.concat(all_data, ignore_index=True)
+    # 创建数据预处理器
+    preprocessor = DataPreprocessor(base_path=base_path)
 
-        # 保存处理后的数据
-        output_path = os.path.join(os.path.dirname(base_path), 'processed_weather_data.csv')
-        combined_df.to_csv(output_path, index=False, encoding='utf-8')
-        print(f"气象数据处理完成，已保存至: {output_path}")
-
-        return combined_df
-    else:
-        print("警告: 没有有效的气象数据可以处理")
-        return pd.DataFrame()
-
-# 附件2：轨道交通客运量数据处理
-def process_transit_data(file_path):
-    """处理附件2的轨道交通客运量数据
-
-    Args:
-        file_path: 轨道交通数据文件路径
-
-    Returns:
-        DataFrame: 处理后的轨道交通数据
-    """
-    print("开始处理轨道交通客运量数据...")
-
-    # 检查文件是否存在
-    if not os.path.exists(file_path):
-        print(f"错误: 文件 {file_path} 不存在")
-        return pd.DataFrame()
-
-    try:
-        # 根据文件扩展名选择读取方法
-        if file_path.endswith('.csv'):
-            df = pd.read_csv(file_path)
-        elif file_path.endswith(('.xls', '.xlsx')):
-            df = pd.read_excel(file_path)
-        else:
-            print(f"错误: 不支持的文件格式 {file_path}")
-            return pd.DataFrame()
-
-        # 数据清洗和转换
-        # 1. 处理缺失值
-        df = df.fillna(method='ffill').fillna(method='bfill')
-
-        # 2. 标准化列名
-        df.columns = [col.strip() for col in df.columns]
-
-        # 3. 转换数据类型
-        for col in df.columns:
-            if '日期' in col or '时间' in col:
-                try:
-                    df[col] = pd.to_datetime(df[col])
-                except:
-                    pass
-            elif df[col].dtype == object:
-                try:
-                    df[col] = pd.to_numeric(df[col])
-                except:
-                    pass
-
-        # 保存处理后的数据
-        output_path = os.path.join(os.path.dirname(file_path), 'processed_transit_data.csv')
-        df.to_csv(output_path, index=False, encoding='utf-8')
-        print(f"轨道交通数据处理完成，已保存至: {output_path}")
-
-        return df
-    except Exception as e:
-        print(f"处理轨道交通数据时出错: {str(e)}")
-        return pd.DataFrame()
-
-# 附件3：人口普查数据处理
-def process_census_data(file_path):
-    """处理附件3的人口普查数据
-
-    Args:
-        file_path: 人口普查数据文件路径
-
-    Returns:
-        DataFrame: 处理后的人口普查数据
-    """
-    print("开始处理人口普查数据...")
-
-    # 检查文件是否存在
-    if not os.path.exists(file_path):
-        print(f"错误: 文件 {file_path} 不存在")
-        return pd.DataFrame()
-
-    try:
-        # 根据文件扩展名选择读取方法
-        if file_path.endswith('.csv'):
-            df = pd.read_csv(file_path)
-        elif file_path.endswith(('.xls', '.xlsx')):
-            df = pd.read_excel(file_path)
-        else:
-            print(f"错误: 不支持的文件格式 {file_path}")
-            return pd.DataFrame()
-
-        # 数据清洗和转换
-        # 1. 处理缺失值
-        df = df.fillna(method='ffill').fillna(method='bfill')
-
-        # 2. 标准化列名
-        df.columns = [col.strip() for col in df.columns]
-
-        # 3. 计算人口密度（如果有相关数据）
-        if '人口' in df.columns and '面积' in df.columns:
-            df['人口密度'] = df['人口'] / df['面积']
-
-        # 保存处理后的数据
-        output_path = os.path.join(os.path.dirname(file_path), 'processed_census_data.csv')
-        df.to_csv(output_path, index=False, encoding='utf-8')
-        print(f"人口普查数据处理完成，已保存至: {output_path}")
-
-        return df
-    except Exception as e:
-        print(f"处理人口普查数据时出错: {str(e)}")
-        return pd.DataFrame()
-
-# 附件12：历史报名人数数据处理
-def process_registration_data(file_path):
-    """处理附件12的历史报名人数数据
-
-    Args:
-        file_path: 历史报名人数数据文件路径
-
-    Returns:
-        DataFrame: 处理后的历史报名人数数据
-    """
-    print("开始处理历史报名人数数据...")
-
-    # 检查文件是否存在
-    if not os.path.exists(file_path):
-        print(f"错误: 文件 {file_path} 不存在")
-        return pd.DataFrame()
-
-    try:
-        # 根据文件扩展名选择读取方法
-        if file_path.endswith('.csv'):
-            df = pd.read_csv(file_path)
-        elif file_path.endswith(('.xls', '.xlsx')):
-            df = pd.read_excel(file_path)
-        else:
-            print(f"错误: 不支持的文件格式 {file_path}")
-            return pd.DataFrame()
-
-        # 数据清洗和转换
-        # 1. 处理缺失值
-        df = df.fillna(method='ffill').fillna(method='bfill')
-
-        # 2. 标准化列名
-        df.columns = [col.strip() for col in df.columns]
-
-        # 3. 计算增长率
-        if '年份' in df.columns and '报名人数' in df.columns:
-            df = df.sort_values('年份')
-            df['报名人数增长率'] = df['报名人数'].pct_change() * 100
-            df['报名人数增长率'] = df['报名人数增长率'].fillna(0)
-
-        # 保存处理后的数据
-        output_path = os.path.join(os.path.dirname(file_path), 'processed_registration_data.csv')
-        df.to_csv(output_path, index=False, encoding='utf-8')
-        print(f"历史报名人数数据处理完成，已保存至: {output_path}")
-
-        return df
-    except Exception as e:
-        print(f"处理历史报名人数数据时出错: {str(e)}")
-        return pd.DataFrame()
-
-if __name__ == '__main__':
-    # 设置数据路径
-    base_dir = os.path.dirname(os.path.abspath(__file__))
-    attachment_dir = os.path.join(base_dir, '附件')
-
-    # 检查附件目录是否存在
-    if not os.path.exists(attachment_dir):
-        print(f"警告: 附件目录 {attachment_dir} 不存在，请确保数据文件已放置在正确位置")
-        attachment_dir = os.path.join(os.path.dirname(base_dir), '附件')  # 尝试上一级目录
-        if not os.path.exists(attachment_dir):
-            print(f"错误: 附件目录 {attachment_dir} 也不存在，请手动设置正确的数据路径")
-            exit(1)
-
-    # 处理附件1：气象数据
-    weather_data_path = os.path.join(attachment_dir, '附件1')
-    weather_data = process_weather_data(weather_data_path)
-
-    # 处理附件2：轨道交通客运量数据
-    transit_data_path = os.path.join(attachment_dir, '附件2.csv')  # 假设为CSV格式
-    transit_data = process_transit_data(transit_data_path)
-
-    # 处理附件3：人口普查数据
-    census_data_path = os.path.join(attachment_dir, '附件3.csv')  # 假设为CSV格式
-    census_data = process_census_data(census_data_path)
-
-    # 处理附件12：历史报名人数数据
-    registration_data_path = os.path.join(attachment_dir, '附件12.csv')  # 假设为CSV格式
-    registration_data = process_registration_data(registration_data_path)
-
-    print('数据预处理全部完成。')
-
-    # 数据整合分析（可选）
-    print('\n开始数据整合分析...')
-
-    # 1. 检查各数据集是否成功处理
-    datasets = {
-        '气象数据': weather_data,
-        '轨道交通数据': transit_data,
-        '人口普查数据': census_data,
-        '历史报名人数数据': registration_data
-    }
-
-    for name, data in datasets.items():
-        if not data.empty:
-            print(f"{name}处理成功，共 {len(data)} 行数据")
-            print(f"数据列: {', '.join(data.columns)}")
-        else:
-            print(f"{name}处理失败或数据为空")
-
-    print('\n数据预处理与分析完成。')
+    # 运行所有预处理步骤
+    processed_data = preprocessor.run_all_preprocessing()

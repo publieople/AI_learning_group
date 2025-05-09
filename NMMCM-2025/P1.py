@@ -58,36 +58,38 @@ def analyze_weather_suitability(weather_data):
     # 定义气象舒适度指数计算函数
     def calculate_comfort_index(row):
         temp_score = 0
-        if 10 <= row['temperature'] <= 25:
-            # 最佳温度区间：15-20度，获得满分10分
-            if 15 <= row['temperature'] <= 20:
+        if 5 <= row['temperature'] <= 28:  # 放宽温度范围
+            # 最佳温度区间：10-22度，获得满分10分
+            if 10 <= row['temperature'] <= 22:
                 temp_score = 10
-            # 10-15度和20-25度，得分9-5分，线性降低
-            elif 10 <= row['temperature'] < 15:
-                temp_score = 5 + (row['temperature'] - 10) * 1
-            else:  # 20 < temp <= 25
-                temp_score = 10 - (row['temperature'] - 20) * 1
+            # 5-10度和22-28度，得分9-5分，线性降低
+            elif 5 <= row['temperature'] < 10:
+                temp_score = 5 + (row['temperature'] - 5) * 0.8
+            else:  # 22 < temp <= 28
+                temp_score = 10 - (row['temperature'] - 22) * 0.833
 
-        # 湿度评分：最佳40-60%，满分5分
+        # 湿度评分：最佳40-60%，满分5分，放宽条件
         humidity_score = 0
-        if 40 <= row['humidity'] <= 70:
-            if 40 <= row['humidity'] <= 60:
+        if 30 <= row['humidity'] <= 80:  # 放宽湿度范围
+            if 40 <= row['humidity'] <= 65:
                 humidity_score = 5
-            else:  # 60 < humidity <= 70
-                humidity_score = 5 - (row['humidity'] - 60) * 0.5
+            elif 30 <= row['humidity'] < 40:
+                humidity_score = 3 + (row['humidity'] - 30) * 0.2
+            else:  # 65 < humidity <= 80
+                humidity_score = 5 - (row['humidity'] - 65) * 0.333
 
-        # 降水评分：无降水满分5分，降水越多分数越低
-        precip_score = max(0, 5 - row['precipitation'])
+        # 降水评分：无降水满分5分，降水越多分数越低，放宽条件
+        precip_score = max(0, 5 - row['precipitation'] * 0.8)  # 降低降水的惩罚程度
 
-        # 风速评分：最佳2-3.5m/s，满分5分
+        # 风速评分：最佳2-4m/s，满分5分，放宽条件
         wind_score = 0
-        if row['wind_speed'] <= 5:
-            if 2 <= row['wind_speed'] <= 3.5:
+        if row['wind_speed'] <= 6:  # 放宽风速范围
+            if 2 <= row['wind_speed'] <= 4:
                 wind_score = 5
             elif row['wind_speed'] < 2:
                 wind_score = 3 + row['wind_speed']
-            else:  # 3.5 < wind_speed <= 5
-                wind_score = 5 - (row['wind_speed'] - 3.5) * 1.5
+            else:  # 4 < wind_speed <= 6
+                wind_score = 5 - (row['wind_speed'] - 4) * 1.0
 
         # 总舒适度指数：温度占50%，湿度20%，降水20%，风速10%
         comfort_index = temp_score * 0.5 + humidity_score * 0.2 + precip_score * 0.2 + wind_score * 0.1
@@ -96,12 +98,12 @@ def analyze_weather_suitability(weather_data):
     # 计算每个城市每月的气象舒适度指数
     monthly_weather['comfort_index'] = monthly_weather.apply(calculate_comfort_index, axis=1)
 
-    # 定义适宜条件
+    # 定义适宜条件，放宽判断标准
     suitable_conditions = (
-        (monthly_weather['temperature'].between(10, 25)) &  # 适宜气温范围
-        (monthly_weather['precipitation'] < 5) &           # 降水量较小
-        (monthly_weather['wind_speed'] < 5) &              # 风速适中
-        (monthly_weather['humidity'].between(40, 70))      # 适宜湿度范围
+        (monthly_weather['temperature'].between(5, 28)) &  # 放宽适宜气温范围
+        (monthly_weather['precipitation'] < 10) &          # 放宽降水量标准
+        (monthly_weather['wind_speed'] < 6) &              # 放宽风速标准
+        (monthly_weather['humidity'].between(30, 80))      # 放宽适宜湿度范围
     )
 
     monthly_weather['is_suitable'] = suitable_conditions
@@ -301,11 +303,15 @@ def optimize_event_parameters(comprehensive_scores, city_capacity, population_da
         city_scores = comprehensive_scores[comprehensive_scores['city'] == city]
         best_months = city_scores.sort_values('total_score', ascending=False)
 
-        # 筛选适宜举办的月份
+        # 筛选适宜举办的月份，如果没有适宜月份，则选择最佳的不适宜月份
         suitable_months = best_months[best_months['is_suitable']].copy()
 
+        # 如果没有适宜月份，则使用总分最高的前3个月份
         if len(suitable_months) == 0:
-            continue
+            suitable_months = best_months.head(3).copy()
+            if len(suitable_months) == 0:
+                continue  # 如果仍然没有可用月份，则跳过该城市
+            print(f"警告: 城市 {city} 没有完全适宜的月份，使用总分最高的月份")
 
         best_month = suitable_months['month'].iloc[0]
         second_best_month = suitable_months['month'].iloc[1] if len(suitable_months) > 1 else None
@@ -353,6 +359,29 @@ def optimize_event_parameters(comprehensive_scores, city_capacity, population_da
             'total_score': suitable_months['total_score'].iloc[0]
         })
 
+    # 如果still没有找到合适的城市，则放宽条件，选择top30的城市
+    if len(event_recommendations) == 0:
+        print("警告: 没有找到符合条件的城市，放宽条件重新筛选...")
+        # 对所有城市按月份选择最高分的月份
+        city_month_scores = comprehensive_scores.loc[comprehensive_scores.groupby('city')['total_score'].idxmax()]
+
+        for _, row in city_month_scores.head(30).iterrows():
+            city = row['city']
+            month = row['month']
+
+            # 设置默认规模
+            event_size = 10000
+
+            event_recommendations.append({
+                'city': city,
+                'best_month': month,
+                'second_best_month': None,
+                'recommended_size': int(event_size),
+                'frequency': '每年1次',
+                'suitable_months': [month],
+                'total_score': row['total_score']
+            })
+
     return pd.DataFrame(event_recommendations)
 
 # 主函数
@@ -388,6 +417,18 @@ def main():
         comprehensive_scores, city_capacity, population_analysis
     )
 
+    # 检查结果是否为空
+    if event_recommendations.empty:
+        print("\n没有找到符合条件的城市。请检查筛选条件或数据。")
+        return
+
+    # 检查是否包含必要的列
+    if 'best_month' not in event_recommendations.columns:
+        print("\n结果数据中缺少'best_month'列。请检查optimize_event_parameters函数的实现。")
+        # 打印数据框的列名以帮助调试
+        print("可用的列名:", event_recommendations.columns.tolist())
+        return
+
     # 输出结果
     print("\n推荐的马拉松赛事安排：")
     for _, rec in event_recommendations.head(10).iterrows():
@@ -396,30 +437,43 @@ def main():
 
         print(f"\n城市：{rec['city']}")
         print(f"最适宜举办月份：{month_names[rec['best_month']]}")
-        if rec['second_best_month'] is not None:
+        if pd.notna(rec['second_best_month']) and rec['second_best_month'] is not None:
             print(f"次适宜举办月份：{month_names[rec['second_best_month']]}")
         print(f"适宜月份列表：{[month_names[m] for m in rec['suitable_months']]}")
         print(f"建议参赛人数：{rec['recommended_size']:,}人")
         print(f"建议举办频次：{rec['frequency']}")
         print(f"综合评分：{rec['total_score']:.2f}")
 
-    # 可视化：不同城市的最佳月份分布
-    plt.figure(figsize=(12, 6))
-    event_recommendations['best_month'].value_counts().sort_index().plot(kind='bar')
-    plt.title('各城市最适宜举办马拉松的月份分布')
-    plt.xlabel('月份')
-    plt.ylabel('城市数量')
-    plt.savefig('马拉松最佳月份分布.png')
+    # 可视化部分添加异常处理
+    try:
+        # 可视化：不同城市的最佳月份分布
+        plt.figure(figsize=(12, 6))
+        best_month_counts = event_recommendations['best_month'].value_counts().sort_index()
+        if not best_month_counts.empty:
+            best_month_counts.plot(kind='bar')
+            plt.title('各城市最适宜举办马拉松的月份分布')
+            plt.xlabel('月份')
+            plt.ylabel('城市数量')
+            plt.savefig('.\P1\马拉松最佳月份分布.png')
+            print("已生成月份分布图：.\P1\马拉松最佳月份分布.png")
+        else:
+            print("没有足够数据生成月份分布图")
 
-    # 可视化：城市评分前20名
-    plt.figure(figsize=(12, 8))
-    top_cities = event_recommendations.sort_values('total_score', ascending=False).head(20)
-    top_cities.plot(x='city', y='total_score', kind='bar', figsize=(12, 6))
-    plt.title('马拉松赛事综合评分前20城市')
-    plt.xlabel('城市')
-    plt.ylabel('综合评分')
-    plt.tight_layout()
-    plt.savefig('马拉松综合评分前20城市.png')
+        # 可视化：城市评分前20名
+        if len(event_recommendations) >= 5:  # 至少需要5个城市才生成排名图
+            plt.figure(figsize=(12, 8))
+            top_cities = event_recommendations.sort_values('total_score', ascending=False).head(20)
+            top_cities.plot(x='city', y='total_score', kind='bar', figsize=(12, 6))
+            plt.title('马拉松赛事综合评分前20城市')
+            plt.xlabel('城市')
+            plt.ylabel('综合评分')
+            plt.tight_layout()
+            plt.savefig('.\P1\马拉松综合评分前20城市.png')
+            print("已生成城市评分图：.\P1\马拉松综合评分前20城市.png")
+        else:
+            print("可用城市数量不足，无法生成城市评分图")
+    except Exception as e:
+        print(f"生成可视化图表时出错: {e}")
 
 if __name__ == "__main__":
     main()

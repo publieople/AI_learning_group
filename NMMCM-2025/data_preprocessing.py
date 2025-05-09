@@ -168,7 +168,7 @@ class DataPreprocessor:
     def process_subway_data(self):
         """
         兼容处理2021-2024年轨道交通客运量数据（附件2）
-        返回：标准化后的DataFrame，字段包括：城市、年份、月份、客运量（万人次）等所有可用数据
+        只保留：城市、运营线路条数、运营里程（公里）、客运量（万人次）、进站量（万人次）、客运强度（万人次每公里日）
         """
         print("开始处理轨道交通客运量数据...")
         import re
@@ -176,17 +176,14 @@ class DataPreprocessor:
         years = ['2021', '2022', '2023', '2024']
         base_path = os.path.join(self.base_path, "附件2：2021-2024年我国主要城市逐月轨道交通客运量数据")
 
-        # 定义所有可能的列名模式
-        column_patterns = {
-            '城市': ['城市', '地区', '城市名称', '城市名'],
-            '客运量': ['客运量', '客运量（万人次）', '客运量(万人次)', '客运量（万人）', '客运量(万人)'],
-            '序号': ['序号', '编号', 'No.', 'NO.'],
-            '线路数': ['线路数', '线路数量', '线路条数'],
-            '运营里程': ['运营里程', '运营里程（公里）', '运营里程(公里)'],
-            '车站数': ['车站数', '车站数量', '站点数', '站点数量'],
-            '日均客运量': ['日均客运量', '日均客运量（万人次）', '日均客运量(万人次)'],
-            '最高日客运量': ['最高日客运量', '最高日客运量（万人次）', '最高日客运量(万人次)'],
-            '最低日客运量': ['最低日客运量', '最低日客运量（万人次）', '最低日客运量(万人次)']
+        # 只保留以下字段
+        keep_fields = {
+            '城市': ['城市'],
+            '运营线路条数': ['运营线路', '运营线', '线路数', '线路条'],
+            '运营里程（公里）': ['运营里', '里程'],
+            '客运量（万人次）': ['客运量'],
+            '进站量（万人次）': ['进站量'],
+            '客运强度（万人次每公里日）': ['客运强']
         }
 
         for year in years:
@@ -207,7 +204,7 @@ class DataPreprocessor:
                     # 查找标题行
                     title_row = None
                     for idx, row in df.iterrows():
-                        row_str = ' '.join(str(val).lower() for val in row if pd.notna(val))
+                        row_str = ' '.join(str(val) for val in row if pd.notna(val))
                         if '序号' in row_str:
                             title_row = idx
                             break
@@ -219,73 +216,54 @@ class DataPreprocessor:
                     # 获取标题行
                     headers = df.iloc[title_row]
 
-                    # 创建列映射
+                    # 创建列映射（用前三个汉字匹配）
                     col_map = {}
                     for idx, header in enumerate(headers):
-                        header_str = str(header).lower()
-                        for col_name, patterns in column_patterns.items():
-                            if any(pattern in header_str for pattern in patterns):
-                                col_map[col_name] = idx
-                                break
+                        header_str = str(header).replace(' ', '')
+                        prefix = header_str[:3]
+                        for field, patterns in keep_fields.items():
+                            for pat in patterns:
+                                if prefix == pat[:3]:
+                                    col_map[field] = idx
+                                    break
 
-                    # 验证必要的列是否存在
-                    if '城市' not in col_map or '客运量' not in col_map:
+                    # 必须有城市和客运量
+                    if '城市' not in col_map or '客运量（万人次）' not in col_map:
                         print(f"警告：{sheet_name}中缺少必要的列（城市或客运量）")
                         continue
 
                     # 从标题行之后开始处理数据，直到遇到总计行
                     for idx in range(title_row + 1, len(df)):
                         row = df.iloc[idx]
-                        city = str(row[col_map['城市']]).strip()
-
-                        # 如果遇到总计行，结束当前sheet的处理
+                        city = str(row[col_map['城市']]).strip() if '城市' in col_map else None
                         if '总' in city or city == '' or city == 'nan':
                             break
 
-                        # 创建数据字典，包含所有可能的字段
+                        # 解析月份
+                        m = re.search(r'(\d+)', sheet_name)
+                        month = int(m.group(1)) if m else None
+
+                        # 构建数据行
                         data_row = {
                             '城市': city,
                             '年份': int(year),
-                            '月份': None,
-                            '客运量_万人次': None,
-                            '线路数': None,
-                            '运营里程_公里': None,
-                            '车站数': None,
-                            '日均客运量_万人次': None,
-                            '最高日客运量_万人次': None,
-                            '最低日客运量_万人次': None
+                            '月份': month
                         }
-
-                        # 解析月份
-                        m = re.search(r'(\d+)', sheet_name)
-                        if m:
-                            data_row['月份'] = int(m.group(1))
-
-                        # 处理所有可用的数值列
-                        numeric_columns = {
-                            '客运量': '客运量_万人次',
-                            '线路数': '线路数',
-                            '运营里程': '运营里程_公里',
-                            '车站数': '车站数',
-                            '日均客运量': '日均客运量_万人次',
-                            '最高日客运量': '最高日客运量_万人次',
-                            '最低日客运量': '最低日客运量_万人次'
-                        }
-
-                        for col_name, data_col in numeric_columns.items():
-                            if col_name in col_map:
+                        for field in keep_fields:
+                            if field == '城市':
+                                continue
+                            idx_col = col_map.get(field, None)
+                            value = None
+                            if idx_col is not None:
                                 try:
-                                    value_str = str(row[col_map[col_name]]).strip()
-                                    value_str = value_str.replace(',', '').replace(' ', '')
-                                    if value_str and value_str != 'nan':
-                                        data_row[data_col] = float(value_str)
+                                    value_str = str(row[idx_col]).replace(',', '').replace(' ', '')
+                                    value = float(value_str) if value_str and value_str != 'nan' else None
                                 except Exception as e:
-                                    print(f"警告：无法转换{col_name}数据 '{row[col_map[col_name]]}' - {str(e)}")
-
-                        # 只添加有效的数据行（至少包含城市和客运量）
-                        if city and data_row['客运量_万人次'] is not None:
+                                    print(f"警告：无法转换{field}数据 '{row[idx_col]}' - {str(e)}")
+                            data_row[field] = value
+                        # 只要城市和客运量有值就保留
+                        if city and data_row['客运量（万人次）'] is not None:
                             all_data.append(data_row)
-
                 except Exception as e:
                     print(f"处理{year}年{sheet_name}时出错: {str(e)}")
                     continue
@@ -301,14 +279,10 @@ class DataPreprocessor:
         print("数据预览：")
         print(df_all.head())
 
-        # 数据清洗
-        # 1. 确保所有数值列都是浮点数类型
-        numeric_columns = [col for col in df_all.columns if col not in ['城市', '年份', '月份']]
-        for col in numeric_columns:
-            df_all[col] = pd.to_numeric(df_all[col], errors='coerce')
-
-        # 2. 删除完全为空的行
-        df_all = df_all.dropna(how='all', subset=numeric_columns)
+        # 数值列转为float
+        for col in df_all.columns:
+            if col not in ['城市', '年份', '月份']:
+                df_all[col] = pd.to_numeric(df_all[col], errors='coerce')
 
         # 保存
         output_file = os.path.join(self.output_dir, "附件2_subway_traffic.csv")

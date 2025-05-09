@@ -13,6 +13,7 @@ import geopandas as gpd
 import rasterio
 from rasterio.plot import show
 import warnings
+import argparse
 warnings.filterwarnings('ignore')
 
 class DataPreprocessor:
@@ -167,67 +168,153 @@ class DataPreprocessor:
     def process_subway_data(self):
         """
         兼容处理2021-2024年轨道交通客运量数据（附件2）
-        返回：标准化后的DataFrame，字段包括：城市、年份、月份、客运量（万人次）
+        返回：标准化后的DataFrame，字段包括：城市、年份、月份、客运量（万人次）等所有可用数据
         """
         print("开始处理轨道交通客运量数据...")
         import re
         all_data = []
         years = ['2021', '2022', '2023', '2024']
         base_path = os.path.join(self.base_path, "附件2：2021-2024年我国主要城市逐月轨道交通客运量数据")
+
+        # 定义所有可能的列名模式
+        column_patterns = {
+            '城市': ['城市', '地区', '城市名称', '城市名'],
+            '客运量': ['客运量', '客运量（万人次）', '客运量(万人次)', '客运量（万人）', '客运量(万人)'],
+            '序号': ['序号', '编号', 'No.', 'NO.'],
+            '线路数': ['线路数', '线路数量', '线路条数'],
+            '运营里程': ['运营里程', '运营里程（公里）', '运营里程(公里)'],
+            '车站数': ['车站数', '车站数量', '站点数', '站点数量'],
+            '日均客运量': ['日均客运量', '日均客运量（万人次）', '日均客运量(万人次)'],
+            '最高日客运量': ['最高日客运量', '最高日客运量（万人次）', '最高日客运量(万人次)'],
+            '最低日客运量': ['最低日客运量', '最低日客运量（万人次）', '最低日客运量(万人次)']
+        }
+
         for year in years:
             file_path = os.path.join(base_path, f"{year}.xlsx")
             if not os.path.exists(file_path):
                 print(f"未找到{file_path}")
                 continue
+
+            print(f"正在处理{year}年数据...")
             xls = pd.ExcelFile(file_path)
-            # 2021/2022年：每月一个sheet，2023/2024年：每月一个sheet，2023年3月起多一列
+
             for sheet_name in xls.sheet_names:
+                print(f"处理工作表: {sheet_name}")
                 try:
-                    df = pd.read_excel(xls, sheet_name=sheet_name, dtype=str)
-                except Exception as e:
-                    print(f"读取{year}年{sheet_name}失败: {e}")
-                    continue
-                # 标题行模糊匹配
-                col_map = {}
-                for col in df.columns:
-                    if re.search("城市", col):
-                        col_map['城市'] = col
-                    elif re.search("客运量", col):
-                        col_map['客运量'] = col
-                    elif re.search("序", col):
-                        col_map['序号'] = col
-                # 跳过无效sheet
-                if not col_map or '城市' not in col_map or '客运量' not in col_map:
-                    continue
-                # 只保留有效数据行
-                for _, row in df.iterrows():
-                    city = str(row[col_map['城市']]).strip()
-                    if '总' in city or city == '' or city == 'nan':
+                    # 读取整个sheet
+                    df = pd.read_excel(xls, sheet_name=sheet_name, dtype=str, header=None)
+
+                    # 查找标题行
+                    title_row = None
+                    for idx, row in df.iterrows():
+                        row_str = ' '.join(str(val).lower() for val in row if pd.notna(val))
+                        if '序号' in row_str:
+                            title_row = idx
+                            break
+
+                    if title_row is None:
+                        print(f"警告：在{sheet_name}中未找到标题行")
                         continue
-                    try:
-                        value = float(str(row[col_map['客运量']]).replace(',', '').replace(' ', ''))
-                    except:
-                        value = None
-                    # 解析月份
-                    month = None
-                    # sheet名可能为"6月""2023年6月"等
-                    m = re.search(r'(\d+)', sheet_name)
-                    if m:
-                        month = int(m.group(1))
-                    all_data.append({
-                        '城市': city,
-                        '年份': int(year),
-                        '月份': month,
-                        '客运量_万人次': value
-                    })
+
+                    # 获取标题行
+                    headers = df.iloc[title_row]
+
+                    # 创建列映射
+                    col_map = {}
+                    for idx, header in enumerate(headers):
+                        header_str = str(header).lower()
+                        for col_name, patterns in column_patterns.items():
+                            if any(pattern in header_str for pattern in patterns):
+                                col_map[col_name] = idx
+                                break
+
+                    # 验证必要的列是否存在
+                    if '城市' not in col_map or '客运量' not in col_map:
+                        print(f"警告：{sheet_name}中缺少必要的列（城市或客运量）")
+                        continue
+
+                    # 从标题行之后开始处理数据，直到遇到总计行
+                    for idx in range(title_row + 1, len(df)):
+                        row = df.iloc[idx]
+                        city = str(row[col_map['城市']]).strip()
+
+                        # 如果遇到总计行，结束当前sheet的处理
+                        if '总' in city or city == '' or city == 'nan':
+                            break
+
+                        # 创建数据字典，包含所有可能的字段
+                        data_row = {
+                            '城市': city,
+                            '年份': int(year),
+                            '月份': None,
+                            '客运量_万人次': None,
+                            '线路数': None,
+                            '运营里程_公里': None,
+                            '车站数': None,
+                            '日均客运量_万人次': None,
+                            '最高日客运量_万人次': None,
+                            '最低日客运量_万人次': None
+                        }
+
+                        # 解析月份
+                        m = re.search(r'(\d+)', sheet_name)
+                        if m:
+                            data_row['月份'] = int(m.group(1))
+
+                        # 处理所有可用的数值列
+                        numeric_columns = {
+                            '客运量': '客运量_万人次',
+                            '线路数': '线路数',
+                            '运营里程': '运营里程_公里',
+                            '车站数': '车站数',
+                            '日均客运量': '日均客运量_万人次',
+                            '最高日客运量': '最高日客运量_万人次',
+                            '最低日客运量': '最低日客运量_万人次'
+                        }
+
+                        for col_name, data_col in numeric_columns.items():
+                            if col_name in col_map:
+                                try:
+                                    value_str = str(row[col_map[col_name]]).strip()
+                                    value_str = value_str.replace(',', '').replace(' ', '')
+                                    if value_str and value_str != 'nan':
+                                        data_row[data_col] = float(value_str)
+                                except Exception as e:
+                                    print(f"警告：无法转换{col_name}数据 '{row[col_map[col_name]]}' - {str(e)}")
+
+                        # 只添加有效的数据行（至少包含城市和客运量）
+                        if city and data_row['客运量_万人次'] is not None:
+                            all_data.append(data_row)
+
+                except Exception as e:
+                    print(f"处理{year}年{sheet_name}时出错: {str(e)}")
+                    continue
+
         # 合并所有年份
         df_all = pd.DataFrame(all_data)
-        # 去除无效行
-        df_all = df_all.dropna(subset=['城市', '年份', '月份', '客运量_万人次'])
+        if df_all.empty:
+            print("未能提取到任何有效的城市客运量数据，请检查原始表格格式或字段匹配规则。")
+            return df_all
+
+        print(f"成功提取到{len(df_all)}条数据记录")
+        print("提取到的字段：", df_all.columns.tolist())
+        print("数据预览：")
+        print(df_all.head())
+
+        # 数据清洗
+        # 1. 确保所有数值列都是浮点数类型
+        numeric_columns = [col for col in df_all.columns if col not in ['城市', '年份', '月份']]
+        for col in numeric_columns:
+            df_all[col] = pd.to_numeric(df_all[col], errors='coerce')
+
+        # 2. 删除完全为空的行
+        df_all = df_all.dropna(how='all', subset=numeric_columns)
+
         # 保存
         output_file = os.path.join(self.output_dir, "附件2_subway_traffic.csv")
-        df_all.to_csv(output_file, index=False)
+        df_all.to_csv(output_file, index=False, encoding='utf-8-sig')
         print(f"轨道交通客运量数据处理完成，已保存到{output_file}")
+
         return df_all
 
     def process_population_data(self):
@@ -443,11 +530,41 @@ class DataPreprocessor:
 
 
 if __name__ == "__main__":
-    # 设置附件基础路径
-    base_path = "附件"
+    # 创建命令行参数解析器
+    parser = argparse.ArgumentParser(description='数据预处理工具')
+    parser.add_argument('--base_path', type=str, default="附件",
+                      help='附件数据的基础路径')
+    parser.add_argument('--attachments', type=str, nargs='+',
+                      help='要处理的附件编号列表，例如：1 2 3')
+    parser.add_argument('--years', type=str, nargs='+',
+                      help='要处理的年份列表（仅用于附件1），例如：2020 2021 2022')
+
+    args = parser.parse_args()
 
     # 创建数据预处理器
-    preprocessor = DataPreprocessor(base_path=base_path)
+    preprocessor = DataPreprocessor(base_path=args.base_path)
 
-    # 运行所有预处理步骤
-    processed_data = preprocessor.run_all_preprocessing()
+    # 如果没有指定附件，则处理所有附件
+    if not args.attachments:
+        print("未指定附件编号，将处理所有附件...")
+        processed_data = preprocessor.run_all_preprocessing()
+    else:
+        processed_data = {}
+        for attachment in args.attachments:
+            print(f"\n开始处理附件{attachment}...")
+            if attachment == "1":
+                processed_data['meteorological'] = preprocessor.process_meteorological_data(years=args.years)
+            elif attachment == "2":
+                processed_data['subway_traffic'] = preprocessor.process_subway_data()
+            elif attachment == "3":
+                processed_data['population'] = preprocessor.process_population_data()
+            elif attachment == "4":
+                processed_data['population_density'], _ = preprocessor.process_population_density()
+            elif attachment == "11":
+                processed_data['ultra_marathon'] = preprocessor.process_ultra_marathon_data()
+            elif attachment == "12":
+                processed_data['marathon_history'] = preprocessor.process_marathon_history()
+            else:
+                print(f"警告：未知的附件编号 {attachment}")
+
+    print("\n数据预处理完成！")

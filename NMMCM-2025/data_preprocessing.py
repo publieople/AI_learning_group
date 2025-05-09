@@ -14,6 +14,7 @@ import rasterio
 from rasterio.plot import show
 import warnings
 import argparse
+import chardet
 warnings.filterwarnings('ignore')
 
 class DataPreprocessor:
@@ -291,6 +292,25 @@ class DataPreprocessor:
 
         return df_all
 
+    def detect_encoding(self, file_path):
+        """
+        使用chardet检测文件编码
+
+        参数:
+        file_path: 文件路径
+
+        返回:
+        检测到的编码
+        """
+        # 读取文件的前10000个字节来检测编码
+        with open(file_path, 'rb') as f:
+            raw_data = f.read(10000)
+            result = chardet.detect(raw_data)
+            encoding = result['encoding']
+            confidence = result['confidence']
+            print(f"检测到文件 {file_path} 的编码为 {encoding}，置信度：{confidence:.2f}")
+            return encoding
+
     def process_population_data(self):
         """
         处理人口普查数据（附件3）
@@ -318,14 +338,30 @@ class DataPreprocessor:
             city_file = os.path.join(pop_base_path, f"【{census}】分年龄、性别的人口_地级市.xls")
 
             try:
-                # 读取省级数据
-                prov_df = pd.read_excel(province_file)
+                # 检测并读取省级数据
+                try:
+                    prov_encoding = self.detect_encoding(province_file)
+                    # 读取前两行作为表头
+                    prov_df = pd.read_excel(province_file, encoding=prov_encoding, header=[0, 1])
+                except Exception as e:
+                    prov_df = pd.read_excel(province_file, header=[0, 1])
+
+                # 处理多级表头
+                prov_df.columns = [f"{col[0]}_{col[1]}" if col[1] != '' else col[0] for col in prov_df.columns]
                 prov_df['普查年份'] = year
                 prov_df['普查名称'] = census
                 province_dfs.append(prov_df)
 
-                # 读取市级数据
-                city_df = pd.read_excel(city_file)
+                # 检测并读取市级数据
+                try:
+                    city_encoding = self.detect_encoding(city_file)
+                    # 读取前两行作为表头
+                    city_df = pd.read_excel(city_file, encoding=city_encoding, header=[0, 1])
+                except Exception as e:
+                    city_df = pd.read_excel(city_file, header=[0, 1])
+
+                # 处理多级表头
+                city_df.columns = [f"{col[0]}_{col[1]}" if col[1] != '' else col[0] for col in city_df.columns]
                 city_df['普查年份'] = year
                 city_df['普查名称'] = census
                 city_dfs.append(city_df)
@@ -337,13 +373,13 @@ class DataPreprocessor:
         if province_dfs:
             province_combined = pd.concat(province_dfs, ignore_index=True)
             output_file = os.path.join(self.output_dir, "附件3_population_province.csv")
-            province_combined.to_csv(output_file, index=False)
+            province_combined.to_csv(output_file, index=False, encoding='utf-8-sig')
             print(f"省级人口数据处理完成，已保存到{output_file}")
 
         if city_dfs:
             city_combined = pd.concat(city_dfs, ignore_index=True)
             output_file = os.path.join(self.output_dir, "附件3_population_city.csv")
-            city_combined.to_csv(output_file, index=False)
+            city_combined.to_csv(output_file, index=False, encoding='utf-8-sig')
             print(f"市级人口数据处理完成，已保存到{output_file}")
 
         # 返回市级数据，因为主要分析城市

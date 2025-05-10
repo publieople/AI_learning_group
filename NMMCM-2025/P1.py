@@ -17,15 +17,47 @@ def ensure_dir_exists(dir_path):
 
 # 加载数据
 def load_data():
-    # 气象数据（附件1）
-    weather_data = pd.read_csv('processed_data/附件1_meteorological_data.csv')
-    # 轨道交通客运量（附件2）
-    transit_data = pd.read_csv('processed_data/附件2_subway_traffic.csv')
-    # 人口普查数据（附件3）- 使用城市级数据
-    census_data = pd.read_csv('processed_data/附件3_population_city.csv')
-    # 历史报名人数（附件12）
-    registration_data = pd.read_csv('processed_data/附件12_marathon_history.csv')
-    return weather_data, transit_data, census_data, registration_data
+    """加载清洗后的数据"""
+    try:
+        # 气象数据（附件1）
+        weather_data = pd.read_csv('processed_data/cleaned/附件1_meteorological_data_cleaned.csv')
+        # 轨道交通客运量（附件2）
+        transit_data = pd.read_csv('processed_data/cleaned/附件2_subway_traffic_cleaned.csv')
+        # 人口普查数据（附件3）- 使用城市级数据
+        census_data = pd.read_csv('processed_data/cleaned/附件3_population_city_cleaned.csv')
+        # 历史报名人数（附件12）
+        registration_data = pd.read_csv('processed_data/cleaned/附件12_marathon_history_cleaned.csv')
+
+        # 数据格式适配
+        # 1. 气象数据
+        if 'datetime' in weather_data.columns:
+            weather_data['datetime'] = pd.to_datetime(weather_data['datetime'])
+
+        # 2. 轨道交通数据
+        if '年份' in transit_data.columns:
+            transit_data['年份'] = transit_data['年份'].astype(int)
+        if '月份' in transit_data.columns:
+            transit_data['月份'] = transit_data['月份'].astype(int)
+
+        # 3. 人口普查数据
+        if '普查年份' in census_data.columns:
+            census_data['普查年份'] = census_data['普查年份'].astype(int)
+
+        # 4. 马拉松历史数据
+        if '比赛日期' in registration_data.columns:
+            registration_data['比赛日期'] = pd.to_datetime(registration_data['比赛日期'])
+
+        print("数据加载成功！")
+        print(f"气象数据形状: {weather_data.shape}")
+        print(f"轨道交通数据形状: {transit_data.shape}")
+        print(f"人口普查数据形状: {census_data.shape}")
+        print(f"马拉松历史数据形状: {registration_data.shape}")
+
+        return weather_data, transit_data, census_data, registration_data
+
+    except Exception as e:
+        print(f"加载数据时出错: {e}")
+        return None, None, None, None
 
 # 气象适宜性分析
 def analyze_weather_suitability(weather_data):
@@ -121,6 +153,10 @@ def analyze_weather_suitability(weather_data):
 # 城市承载能力分析
 def analyze_city_capacity(transit_data):
     """分析城市轨道交通运力"""
+    if transit_data is None:
+        print("轨道交通数据为空，无法进行分析")
+        return None
+
     # 计算每个城市的月均客运量和峰值
     city_capacity = transit_data.groupby(['城市', '年份', '月份'])['客运量（万人次）'].mean().reset_index()
     city_capacity.rename(columns={'城市': 'city'}, inplace=True)
@@ -140,22 +176,26 @@ def analyze_city_capacity(transit_data):
     return monthly_capacity
 
 # 人口规模分析
-def analyze_population(census_data):
-    """分析人口数据，计算各城市的总人口和年龄分布"""
+def analyze_population(population_data):
+    """分析城市人口数据"""
+    if population_data is None:
+        print("人口数据为空，无法进行分析")
+        return None
+
     # 计算总人口
-    age_columns = [col for col in census_data.columns if any(x in col for x in ['岁_男', '岁_女'])]
-    census_data['total_population'] = census_data[age_columns].sum(axis=1)
+    age_columns = [col for col in population_data.columns if any(x in col for x in ['岁_男', '岁_女'])]
+    population_data['total_population'] = population_data[age_columns].sum(axis=1)
 
     # 计算适龄人口（18-45岁）比例
-    running_age_columns = [col for col in census_data.columns if any(x in col for x in ['20-24岁', '25-29岁', '30-34岁', '35-39岁', '40-44岁', '15-19岁'])]
-    census_data['running_age_population'] = census_data[running_age_columns].sum(axis=1)
-    census_data['running_age_ratio'] = census_data['running_age_population'] / census_data['total_population']
+    running_age_columns = [col for col in population_data.columns if any(x in col for x in ['20-24岁', '25-29岁', '30-34岁', '35-39岁', '40-44岁', '15-19岁'])]
+    population_data['running_age_population'] = population_data[running_age_columns].sum(axis=1)
+    population_data['running_age_ratio'] = population_data['running_age_population'] / population_data['total_population']
 
     # 提取城市名称
-    census_data['city'] = census_data['地名_Unnamed: 1_level_1']
+    population_data['city'] = population_data['地名_Unnamed: 1_level_1']
 
     # 计算人口规模评分
-    population_analysis = census_data[['city', 'total_population', 'running_age_population', 'running_age_ratio']].copy()
+    population_analysis = population_data[['city', 'total_population', 'running_age_population', 'running_age_ratio']].copy()
 
     # 人口规模评分：总人口越多越好，但有上限
     population_analysis.loc[:, 'population_size_score'] = population_analysis['total_population'] / 1000000  # 每百万人口1分
@@ -165,61 +205,63 @@ def analyze_population(census_data):
     population_analysis.loc[:, 'age_ratio_score'] = population_analysis['running_age_ratio'] * 3  # 最高3分
 
     # 总人口评分
-    population_analysis.loc[:, 'population_score'] = population_analysis['population_size_score'] + population_analysis['age_ratio_score']
+    population_analysis.loc[:, 'total_score'] = population_analysis['population_size_score'] + population_analysis['age_ratio_score']
 
     return population_analysis
 
 # 报名热度分析
-def analyze_registration_trend(registration_data):
-    """分析历史报名数据，预测报名热度"""
-    # 处理raceTime列，先检查格式
-    registration_data['raceTime'] = registration_data['raceTime'].astype(str)
+def analyze_registration_trend(marathon_data):
+    """分析马拉松报名趋势"""
+    if marathon_data is None:
+        print("马拉松历史数据为空，无法进行分析")
+        return None
 
-    # 清理数据，过滤掉不符合日期格式的行
-    valid_date_mask = registration_data['raceTime'].str.match(r'\d{4}-\d{2}-\d{2}')
-    if valid_date_mask.any():
-        valid_registration_data = registration_data[valid_date_mask].copy()
-    else:
-        # 如果没有合适的日期格式，则使用其他方法
-        # 用于从"2024-10-20 00:00:00"格式的日期中提取月份
-        valid_registration_data = registration_data.copy()
-        valid_registration_data['month'] = 0  # 默认值
+    # 打印列名以便调试
+    print("马拉松历史数据列名:", marathon_data.columns.tolist())
 
-        # 尝试找出包含年份和月份的列，如果直接提取失败
-        if '比赛时间' in registration_data.columns:
-            valid_registration_data['month'] = pd.to_datetime(registration_data['比赛时间'],
-                                                          errors='coerce').dt.month.fillna(0).astype(int)
-        else:
-            # 手动提取月份（从类似"2024-10-20 00:00:00"的字符串）
-            month_extract = registration_data['raceTime'].str.extract(r'(\d{4})-(\d{2})-\d{2}')
-            if not month_extract.empty and not month_extract[1].isna().all():
-                valid_registration_data['month'] = month_extract[1].astype(float).fillna(0).astype(int)
-            else:
-                # 如果无法提取月份，则随机分配，或者根据其他字段推断
-                valid_registration_data['month'] = np.random.randint(1, 13, size=len(valid_registration_data))
+    # 从raceTime列提取月份信息
+    try:
+        marathon_data['raceTime'] = pd.to_datetime(marathon_data['raceTime'], errors='coerce')
+        marathon_data['month'] = marathon_data['raceTime'].dt.month
+    except Exception as e:
+        print(f"处理日期时出错: {e}")
+        # 尝试从raceTime字符串中提取月份
+        try:
+            marathon_data['month'] = marathon_data['raceTime'].str.extract(r'(\d{4})-(\d{2})-\d{2}')[1].astype(int)
+        except:
+            print("无法从raceTime提取月份信息")
+            return None
 
-    # 提取月份信息
-    if 'month' not in valid_registration_data.columns:
-        valid_registration_data['month'] = pd.to_datetime(valid_registration_data['raceTime'],
-                                                     errors='coerce').dt.month.fillna(0).astype(int)
+    # 从raceScale列提取报名人数
+    try:
+        # 尝试从raceScale中提取数字
+        marathon_data['报名人数'] = marathon_data['raceScale'].str.extract(r'(\d+)').astype(float)
+    except:
+        print("无法从raceScale提取报名人数")
+        return None
 
-    # 按月份统计赛事数量
-    monthly_events = valid_registration_data.groupby('month').size().reset_index(name='event_count')
+    # 计算每个城市的报名人数和完赛率
+    city_stats = marathon_data.groupby('raceAddres').agg({
+        '报名人数': 'mean',
+        'month': 'count'  # 使用月份计数作为赛事数量
+    }).reset_index()
 
-    # 提取报名人数（从raceScale中提取数字部分）
-    if 'raceScale' in valid_registration_data.columns:
-        # 从raceScale中提取数字（修复转义序列）
-        valid_registration_data['registrants'] = valid_registration_data['raceScale'].str.extract(r'(\d+)').astype(float)
-        monthly_registrants = valid_registration_data.groupby('month')['registrants'].mean().reset_index()
-        monthly_events = monthly_events.merge(monthly_registrants, on='month', how='left')
-    else:
-        monthly_events['registrants'] = np.nan
+    # 计算报名热度评分：报名人数越多，热度越高
+    city_stats['报名热度'] = city_stats['报名人数'] / city_stats['报名人数'].max() * 10
 
-    # 计算报名热度评分：赛事数量越多，热度越高
-    max_events = monthly_events['event_count'].max() if not monthly_events.empty else 1
-    monthly_events['popularity_score'] = (monthly_events['event_count'] / max_events) * 10
+    # 计算赛事频次评分：赛事数量越多，频次越高
+    city_stats['频次评分'] = city_stats['month'] / city_stats['month'].max() * 10
 
-    return monthly_events
+    # 综合评分
+    city_stats['综合评分'] = city_stats['报名热度'] + city_stats['频次评分']
+
+    # 重命名列以保持一致性
+    city_stats.rename(columns={
+        'raceAddres': 'city',
+        'month': '赛事数量'
+    }, inplace=True)
+
+    return city_stats
 
 # 综合评分模型
 def build_comprehensive_model(weather_data, city_capacity, population_data, registration_data):
@@ -245,9 +287,24 @@ def build_comprehensive_model(weather_data, city_capacity, population_data, regi
 
         # 如果仍然没找到匹配的人口数据，使用平均值
         if len(city_population) == 0:
-            population_score = population_data['population_score'].mean()
+            population_score = population_data['total_score'].mean()
         else:
-            population_score = city_population['population_score'].iloc[0]
+            population_score = city_population['total_score'].iloc[0]
+
+        # 查找报名热度数据
+        city_registration = registration_data[registration_data['city'] == city]
+        if len(city_registration) == 0:
+            # 尝试模糊匹配
+            for reg_city in registration_data['city'].unique():
+                if city in reg_city or reg_city in city:
+                    city_registration = registration_data[registration_data['city'] == reg_city]
+                    break
+
+        # 如果仍然没找到匹配的报名数据，使用平均值
+        if len(city_registration) == 0:
+            popularity_score = registration_data['综合评分'].mean()
+        else:
+            popularity_score = city_registration['综合评分'].iloc[0]
 
         for month in months:
             # 获取当月气象评分
@@ -265,13 +322,6 @@ def build_comprehensive_model(weather_data, city_capacity, population_data, regi
                 transport_score = month_transport['transport_score'].iloc[0]
             else:
                 transport_score = 0
-
-            # 获取当月报名热度评分
-            month_popularity = registration_data[registration_data['month'] == month]
-            if len(month_popularity) > 0:
-                popularity_score = month_popularity['popularity_score'].iloc[0]
-            else:
-                popularity_score = 0
 
             # 计算综合评分：气象50%，交通30%，人口10%，报名热度10%
             total_score = (

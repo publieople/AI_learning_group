@@ -46,6 +46,7 @@ class DataPreprocessor:
 
         # 气象数据路径
         meteo_base_path = os.path.join(self.base_path, "附件1：中国气象数据")
+        print(f"气象数据基础路径: {meteo_base_path}")
 
         # 如果未指定年份，获取所有年份文件夹
         if years is None:
@@ -53,70 +54,159 @@ class DataPreprocessor:
                      if os.path.isdir(os.path.join(meteo_base_path, d)) and 'china_isd_lite' in d]
             years = [y.split('_')[-1] for y in years]
 
+        print(f"待处理年份: {years}")
+
         all_data = []
+        processed_stations = set()  # 用于记录已处理的站点
+        error_files = []  # 记录处理失败的文件
 
         for year in years:
-            print(f"处理{year}年的气象数据...")
+            print(f"\n处理{year}年的气象数据...")
             year_path = os.path.join(meteo_base_path, f"china_isd_lite_{year}")
+
+            if not os.path.exists(year_path):
+                print(f"警告: {year_path} 路径不存在")
+                continue
 
             # 获取该年份下所有站点文件
             station_files = glob.glob(os.path.join(year_path, "*"))
-
-            # 如果指定了城市，只处理这些城市的站点
-            if cities is not None:
-                # 这里需要站点ID与城市的映射关系，暂时跳过筛选
-                pass
+            print(f"找到{len(station_files)}个站点文件")
 
             for station_file in station_files:
                 try:
                     # 提取站点ID
                     station_id = os.path.basename(station_file).split('-')[0]
 
+                    # 如果已经处理过该站点，跳过
+                    if station_id in processed_stations:
+                        continue
+
+                    processed_stations.add(station_id)
+                    print(f"处理站点 {station_id} 的数据...")
+
                     # 读取数据
-                    with open(station_file, 'r') as f:
-                        lines = f.readlines()
+                    try:
+                        with open(station_file, 'r', encoding='utf-8') as f:
+                            lines = f.readlines()
+                    except UnicodeDecodeError:
+                        # 如果UTF-8解码失败，尝试其他编码
+                        with open(station_file, 'r', encoding='gbk') as f:
+                            lines = f.readlines()
 
+                    # 打印前5行数据用于调试
+                    # print(f"\n站点 {station_id} 的前5行数据:")
+                    # for i, line in enumerate(lines[:5]):
+                    #     print(f"行 {i+1}: {line.strip()}")
+
+                    valid_lines = 0  # 记录有效数据行数
                     # 解析数据
-                    for line in lines:
-                        parts = line.strip().split()
-                        if len(parts) >= 9:  # 确保有足够的数据列
-                            year, month, day, hour = parts[0], parts[1], parts[2], parts[3]
+                    for line_num, line in enumerate(lines, 1):
+                        try:
+                            parts = line.strip().split()
+                            if len(parts) >= 9:  # 确保有足够的数据列
+                                # 打印数据解析过程
+                                # if line_num <= 5:
+                                    # print(f"\n解析第{line_num}行:")
+                                    # print(f"原始数据: {parts}")
 
-                            # 温度、露点、气压、风向、风速、云量、降水量
-                            temp = float(parts[4]) / 10.0 if parts[4] != '-9999' else np.nan  # 温度，除以10转为摄氏度
-                            dewp = float(parts[5]) / 10.0 if parts[5] != '-9999' else np.nan  # 露点，除以10转为摄氏度
-                            pressure = float(parts[6]) / 10.0 if parts[6] != '-9999' else np.nan  # 气压，除以10转为百帕
-                            wind_dir = float(parts[7]) if parts[7] != '-9999' else np.nan  # 风向
-                            wind_speed = float(parts[8]) / 10.0 if parts[8] != '-9999' else np.nan  # 风速，除以10转为米/秒
+                                year, month, day, hour = parts[0], parts[1], parts[2], parts[3]
 
-                            # 云量和降水量可能不存在
-                            cloud = float(parts[9]) if len(parts) > 9 and parts[9] != '-9999' else np.nan
-                            precip = float(parts[10]) / 10.0 if len(parts) > 10 and parts[10] != '-9999' else np.nan  # 降水量，除以10转为毫米
+                                # 数据验证
+                                if not all(x.isdigit() for x in [year, month, day, hour]):
+                                    if line_num <= 5:
+                                        print(f"日期时间验证失败: {year}-{month}-{day} {hour}")
+                                    continue
 
-                            # 构建数据行
-                            data_row = {
-                                'station_id': station_id,
-                                'datetime': f"{year}-{month.zfill(2)}-{day.zfill(2)} {hour.zfill(2)}:00:00",
-                                'temperature': temp,
-                                'dew_point': dewp,
-                                'pressure': pressure,
-                                'wind_direction': wind_dir,
-                                'wind_speed': wind_speed,
-                                'cloud_cover': cloud,
-                                'precipitation': precip
-                            }
-                            all_data.append(data_row)
+                                # 温度、露点、气压、风向、风速、云量、降水量
+                                temp = float(parts[4]) / 10.0 if parts[4] != '-9999' else np.nan
+                                dewp = float(parts[5]) / 10.0 if parts[5] != '-9999' else np.nan
+                                pressure = float(parts[6]) / 10.0 if parts[6] != '-9999' else np.nan
+                                wind_dir = float(parts[7]) if parts[7] != '-9999' else np.nan
+                                wind_speed = float(parts[8]) / 10.0 if parts[8] != '-9999' else np.nan
+
+                                # 云量和降水量可能不存在
+                                cloud = float(parts[9]) if len(parts) > 9 and parts[9] != '-9999' else np.nan
+                                precip = float(parts[10]) / 10.0 if len(parts) > 10 and parts[10] != '-9999' else np.nan
+
+                                # if line_num <= 5:
+                                #     print(f"解析结果: 温度={temp}, 露点={dewp}, 气压={pressure}, 风向={wind_dir}, 风速={wind_speed}, 云量={cloud}, 降水量={precip}")
+
+                                # 数据合理性检查 - 放宽条件
+                                # 1. 只检查非空值
+                                # 2. 使用更合理的范围
+                                if ((np.isnan(temp) or -50 <= temp <= 50) and  # 温度范围：-50℃到50℃
+                                    (np.isnan(dewp) or -50 <= dewp <= 50) and  # 露点范围：-50℃到50℃
+                                    (np.isnan(pressure) or 800 <= pressure <= 1100) and  # 气压范围：800-1100百帕
+                                    (np.isnan(wind_dir) or 0 <= wind_dir <= 360) and  # 风向范围：0-360度
+                                    (np.isnan(wind_speed) or 0 <= wind_speed <= 100) and  # 风速范围：0-100米/秒
+                                    (np.isnan(cloud) or 0 <= cloud <= 8) and  # 云量范围：0-8
+                                    (np.isnan(precip) or 0 <= precip <= 1000)):  # 降水量范围：0-1000毫米
+
+                                    # 构建数据行
+                                    data_row = {
+                                        'station_id': station_id,
+                                        'datetime': f"{year}-{month.zfill(2)}-{day.zfill(2)} {hour.zfill(2)}:00:00",
+                                        'temperature': temp,
+                                        'dew_point': dewp,
+                                        'pressure': pressure,
+                                        'wind_direction': wind_dir,
+                                        'wind_speed': wind_speed,
+                                        'cloud_cover': cloud,
+                                        'precipitation': precip
+                                    }
+                                    all_data.append(data_row)
+                                    valid_lines += 1
+                                elif line_num <= 5:
+                                    print("数据合理性检查失败")
+
+                        except (ValueError, IndexError) as e:
+                            if line_num <= 5:
+                                print(f"处理第{line_num}行时出错: {e}, 行内容: {line.strip()}")
+                            continue
+
+                    print(f"站点 {station_id} 处理完成，有效数据行数: {valid_lines}")
+
                 except Exception as e:
                     print(f"处理文件{station_file}时出错: {e}")
+                    error_files.append(station_file)
+                    continue
+
+        # 检查是否有数据被处理
+        if not all_data:
+            print("警告: 没有成功处理任何数据！")
+            return pd.DataFrame()  # 返回空DataFrame
 
         # 转换为DataFrame
         df = pd.DataFrame(all_data)
+        print(f"\n成功处理的数据行数: {len(df)}")
+
+        # 转换日期时间列
         df['datetime'] = pd.to_datetime(df['datetime'])
+
+        # 添加时间相关特征
+        df['year'] = df['datetime'].dt.year
+        df['month'] = df['datetime'].dt.month
+        df['day'] = df['datetime'].dt.day
+        df['hour'] = df['datetime'].dt.hour
+
+        # 数据统计信息
+        print("\n数据统计信息:")
+        print(f"总记录数: {len(df)}")
+        print(f"站点数量: {df['station_id'].nunique()}")
+        print(f"时间范围: {df['datetime'].min()} 至 {df['datetime'].max()}")
+        print("\n各气象要素的统计信息:")
+        print(df[['temperature', 'dew_point', 'pressure', 'wind_speed', 'cloud_cover', 'precipitation']].describe())
 
         # 保存处理后的数据
         output_file = os.path.join(self.output_dir, "附件1_meteorological_data.csv")
         df.to_csv(output_file, index=False)
-        print(f"气象数据处理完成，已保存到{output_file}")
+        print(f"\n气象数据处理完成，已保存到{output_file}")
+
+        # 如果有处理失败的文件，输出信息
+        if error_files:
+            print("\n处理失败的文件:")
+            for file in error_files:
+                print(f"- {file}")
 
         return df
 

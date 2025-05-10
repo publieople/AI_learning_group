@@ -7,6 +7,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 from data_cleaning import DataCleaner
+plt.rcParams['font.sans-serif'] = ['SimHei']  # 用来正常显示中文标签
+plt.rcParams['axes.unicode_minus'] = False  # 用来正常显示负号
 
 def test_data_cleaning():
     """测试数据清洗效果"""
@@ -101,7 +103,7 @@ def test_meteorological_cleaning(cleaner):
         plt.legend()
 
         plt.tight_layout()
-        plt.savefig('气象数据清洗效果对比.png')
+        plt.savefig('.\processed_data\cleaned\气象数据清洗效果对比.png')
         plt.close()
         print("已保存气象数据清洗效果对比图")
     except Exception as e:
@@ -176,7 +178,7 @@ def test_subway_traffic_cleaning(cleaner):
         plt.title('清洗后运营里程箱线图')
 
         plt.tight_layout()
-        plt.savefig('轨道交通数据清洗效果对比.png')
+        plt.savefig('.\processed_data\cleaned\轨道交通数据清洗效果对比.png')
         plt.close()
         print("已保存轨道交通数据清洗效果对比图")
     except Exception as e:
@@ -262,7 +264,7 @@ def test_marathon_history_cleaning(cleaner):
         plt.legend()
 
         plt.tight_layout()
-        plt.savefig('马拉松赛历数据清洗效果对比.png')
+        plt.savefig('.\processed_data\cleaned\马拉松赛历数据清洗效果对比.png')
         plt.close()
         print("已保存马拉松赛历数据清洗效果对比图")
     except Exception as e:

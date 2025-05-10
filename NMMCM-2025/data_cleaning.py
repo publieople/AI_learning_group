@@ -225,14 +225,19 @@ class DataCleaner:
         # 转换日期列
         df['datetime'] = pd.to_datetime(df['datetime'])
 
-        # 处理缺失值
+        # 处理缺失值 - 排除precipitation列，因为它全部为NaN
         numeric_cols = ['temperature', 'dew_point', 'pressure', 'wind_direction',
-                       'wind_speed', 'cloud_cover', 'precipitation']
+                       'wind_speed', 'cloud_cover']
         date_cols = ['datetime']
 
         df_cleaned = self.handle_missing_values(df, numeric_cols=numeric_cols, date_cols=date_cols)
 
-        # 处理异常值
+        # 对于precipitation列，由于全部为NaN，直接设置为0
+        if 'precipitation' in df_cleaned.columns:
+            print(f"列 precipitation 全部为NaN，将其设置为0")
+            df_cleaned['precipitation'] = 0.0
+
+        # 处理异常值 - 同样排除precipitation列
         df_cleaned = self.handle_outliers(df_cleaned, numeric_cols=numeric_cols)
 
         # 保存清洗后的数据
@@ -340,27 +345,72 @@ class DataCleaner:
         if df is None:
             return None
 
+        # 打印列名，以便调试
+        print(f"数据列名: {df.columns.tolist()}")
+
+        # 检查数据类型
+        print("数据类型:")
+        for col in df.columns:
+            print(f"{col}: {df[col].dtype}")
+
+        # 确定数值列、分类列和日期列
+        numeric_cols = []
+        categorical_cols = []
+        date_cols = []
+
+        # 尝试根据列名和数据类型确定列类型
+        for col in df.columns:
+            # 尝试找出数值列
+            if df[col].dtype in ['int64', 'float64'] or any(x in col.lower() for x in ['人数', '费', '率']):
+                numeric_cols.append(col)
+            # 尝试找出日期列
+            elif any(x in col.lower() for x in ['日期', 'time', 'date']):
+                date_cols.append(col)
+                # 尝试转换为日期格式
+                try:
+                    df[col] = pd.to_datetime(df[col], errors='coerce')
+                except:
+                    print(f"警告: 无法将列 {col} 转换为日期格式")
+            # 其他列作为分类列
+            else:
+                categorical_cols.append(col)
+
+        print(f"识别的数值列: {numeric_cols}")
+        print(f"识别的日期列: {date_cols}")
+        print(f"识别的分类列: {categorical_cols}")
+
         # 处理缺失值
-        numeric_cols = ['报名人数', '完赛人数', '报名费', '完赛率']
-        categorical_cols = ['赛事名称', '举办城市', '赛事等级', '赛事距离']
-        date_cols = ['比赛日期']
-
         df_cleaned = self.handle_missing_values(df, numeric_cols=numeric_cols,
-                                             categorical_cols=categorical_cols,
-                                             date_cols=date_cols)
+                                            categorical_cols=categorical_cols,
+                                            date_cols=date_cols)
 
-        # 处理异常值
+        # 处理异常值（只处理数值列）
         df_cleaned = self.handle_outliers(df_cleaned, numeric_cols=numeric_cols)
 
         # 处理完赛率异常值（范围应在0-1之间）
-        if '完赛率' in df_cleaned.columns:
-            df_cleaned.loc[df_cleaned['完赛率'] > 1, '完赛率'] = 1
-            df_cleaned.loc[df_cleaned['完赛率'] < 0, '完赛率'] = 0
+        for col in numeric_cols:
+            if '完赛率' in col:
+                df_cleaned.loc[df_cleaned[col] > 1, col] = 1
+                df_cleaned.loc[df_cleaned[col] < 0, col] = 0
+                print(f"已修正完赛率列 {col} 的范围为0-1")
 
         # 重新计算缺失的完赛率
-        if '报名人数' in df_cleaned.columns and '完赛人数' in df_cleaned.columns:
-            mask = (df_cleaned['完赛率'].isnull()) & (df_cleaned['报名人数'] > 0) & (df_cleaned['完赛人数'] > 0)
-            df_cleaned.loc[mask, '完赛率'] = df_cleaned.loc[mask, '完赛人数'] / df_cleaned.loc[mask, '报名人数']
+        registration_col = None
+        completion_col = None
+        ratio_col = None
+
+        for col in numeric_cols:
+            if '报名人数' in col:
+                registration_col = col
+            elif '完赛人数' in col:
+                completion_col = col
+            elif '完赛率' in col:
+                ratio_col = col
+
+        if registration_col and completion_col and ratio_col:
+            mask = (df_cleaned[ratio_col].isnull()) & (df_cleaned[registration_col] > 0) & (df_cleaned[completion_col] > 0)
+            df_cleaned.loc[mask, ratio_col] = df_cleaned.loc[mask, completion_col] / df_cleaned.loc[mask, registration_col]
+            print(f"已计算 {mask.sum()} 条缺失的完赛率数据")
 
         # 保存清洗后的数据
         output_file = os.path.join(self.output_dir, "附件12_marathon_history_cleaned.csv")
@@ -411,78 +461,83 @@ class DataCleaner:
                 print(f"加载数据时出错: {e}")
                 return None
 
+        # 打印列名，以便调试
+        print(f"数据列名: {df.columns.tolist()}")
+
+        # 找出经纬度列
+        lat_col = None
+        lon_col = None
+
+        # 尝试识别经纬度列
+        possible_lat_cols = ['lat', 'latitude', '纬度', 'Lat', 'LAT']
+        possible_lon_cols = ['lon', 'longitude', '经度', 'Lon', 'LON', 'lng', 'LNG']
+
+        for col in df.columns:
+            col_lower = col.lower()
+            if any(lat_name in col_lower for lat_name in possible_lat_cols):
+                lat_col = col
+            if any(lon_name in col_lower for lon_name in possible_lon_cols):
+                lon_col = col
+
+        if lat_col is None or lon_col is None:
+            print(f"警告: 无法精确匹配经纬度列名。尝试使用模糊匹配")
+            # 尝试模糊匹配
+            for col in df.columns:
+                if 'lat' in col.lower():
+                    lat_col = col
+                if 'lon' in col.lower() or 'lng' in col.lower():
+                    lon_col = col
+
+        if lat_col is None or lon_col is None:
+            print(f"错误: 无法找到经纬度列，跳过地理位置清洗")
+            # 继续处理其他列，不进行地理位置清洗
+            has_geo = False
+        else:
+            print(f"找到经纬度列: {lat_col}, {lon_col}")
+            has_geo = True
+
+        # 确定评分列
+        rating_col = None
+        for col in df.columns:
+            if 'rating' in col.lower() or '评分' in col or 'rate' in col.lower():
+                rating_col = col
+                break
+
         # 处理缺失值和异常值
-        if data_type == '住宿':
-            # 确定数值列和分类列
-            numeric_cols = ['lat', 'lon', 'rating']
-            categorical_cols = ['name', 'address', 'tag']
+        # 根据数据类型确定数值列和分类列
+        numeric_cols = []
+        categorical_cols = []
 
-            # 处理缺失值
-            df_cleaned = self.handle_missing_values(df, numeric_cols=numeric_cols, categorical_cols=categorical_cols)
+        # 添加评分列（如果存在）
+        if rating_col:
+            numeric_cols.append(rating_col)
 
-            # 处理异常值
-            df_cleaned = self.handle_outliers(df_cleaned, numeric_cols=numeric_cols)
+        # 添加经纬度列（如果存在）
+        if has_geo:
+            numeric_cols.extend([lat_col, lon_col])
 
+        # 确定分类列（所有对象类型的列）
+        for col in df.columns:
+            if col not in numeric_cols and df[col].dtype == 'object':
+                categorical_cols.append(col)
+
+        # 处理缺失值
+        df_cleaned = self.handle_missing_values(df, numeric_cols=numeric_cols, categorical_cols=categorical_cols)
+
+        # 处理异常值（只处理数值列）
+        df_cleaned = self.handle_outliers(df_cleaned, numeric_cols=numeric_cols)
+
+        # 地理位置清洗（如果存在经纬度列）
+        if has_geo:
             # 删除没有地理位置的记录
-            df_cleaned = df_cleaned.dropna(subset=['lat', 'lon'])
+            df_cleaned = df_cleaned.dropna(subset=[lat_col, lon_col])
+            print(f"移除了 {len(df) - len(df_cleaned)} 条缺失经纬度的记录")
 
             # 确保经纬度在合理范围内（西安大致范围：经度108-109.5，纬度33.5-35）
-            df_cleaned = df_cleaned[(df_cleaned['lon'] > 108) & (df_cleaned['lon'] < 109.5) &
-                                  (df_cleaned['lat'] > 33.5) & (df_cleaned['lat'] < 35)]
-
-        elif data_type == '餐饮':
-            # 确定数值列和分类列
-            numeric_cols = ['lat', 'lon', 'rating']
-            categorical_cols = ['name', 'address', 'tag']
-
-            # 处理缺失值
-            df_cleaned = self.handle_missing_values(df, numeric_cols=numeric_cols, categorical_cols=categorical_cols)
-
-            # 处理异常值
-            df_cleaned = self.handle_outliers(df_cleaned, numeric_cols=numeric_cols)
-
-            # 删除没有地理位置的记录
-            df_cleaned = df_cleaned.dropna(subset=['lat', 'lon'])
-
-            # 确保经纬度在合理范围内
-            df_cleaned = df_cleaned[(df_cleaned['lon'] > 108) & (df_cleaned['lon'] < 109.5) &
-                                  (df_cleaned['lat'] > 33.5) & (df_cleaned['lat'] < 35)]
-
-        elif data_type == '景点':
-            # 确定数值列和分类列
-            numeric_cols = ['lat', 'lon', 'rating']
-            categorical_cols = ['name', 'address', 'tag']
-
-            # 处理缺失值
-            df_cleaned = self.handle_missing_values(df, numeric_cols=numeric_cols, categorical_cols=categorical_cols)
-
-            # 处理异常值
-            df_cleaned = self.handle_outliers(df_cleaned, numeric_cols=numeric_cols)
-
-            # 删除没有地理位置的记录
-            df_cleaned = df_cleaned.dropna(subset=['lat', 'lon'])
-
-            # 确保经纬度在合理范围内
-            df_cleaned = df_cleaned[(df_cleaned['lon'] > 108) & (df_cleaned['lon'] < 109.5) &
-                                  (df_cleaned['lat'] > 33.5) & (df_cleaned['lat'] < 35)]
-
-        else:  # 道路附属设施
-            # 根据具体字段调整
-            numeric_cols = ['lat', 'lon']
-            categorical_cols = ['name', 'address', 'type']
-
-            # 处理缺失值
-            df_cleaned = self.handle_missing_values(df, numeric_cols=numeric_cols, categorical_cols=categorical_cols)
-
-            # 处理异常值
-            df_cleaned = self.handle_outliers(df_cleaned, numeric_cols=numeric_cols)
-
-            # 删除没有地理位置的记录
-            df_cleaned = df_cleaned.dropna(subset=['lat', 'lon'])
-
-            # 确保经纬度在合理范围内
-            df_cleaned = df_cleaned[(df_cleaned['lon'] > 108) & (df_cleaned['lon'] < 109.5) &
-                                  (df_cleaned['lat'] > 33.5) & (df_cleaned['lat'] < 35)]
+            initial_len = len(df_cleaned)
+            df_cleaned = df_cleaned[(df_cleaned[lon_col] > 108) & (df_cleaned[lon_col] < 109.5) &
+                                  (df_cleaned[lat_col] > 33.5) & (df_cleaned[lat_col] < 35)]
+            print(f"移除了 {initial_len - len(df_cleaned)} 条经纬度异常的记录")
 
         # 保存清洗后的数据
         output_file = os.path.join(self.output_dir, f"附件5_西安市{data_type}数据_cleaned.csv")

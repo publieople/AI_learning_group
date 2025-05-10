@@ -82,7 +82,6 @@ class DataPreprocessor:
                         continue
 
                     processed_stations.add(station_id)
-                    print(f"处理站点 {station_id} 的数据...")
 
                     # 读取数据
                     try:
@@ -93,28 +92,16 @@ class DataPreprocessor:
                         with open(station_file, 'r', encoding='gbk') as f:
                             lines = f.readlines()
 
-                    # 打印前5行数据用于调试
-                    # print(f"\n站点 {station_id} 的前5行数据:")
-                    # for i, line in enumerate(lines[:5]):
-                    #     print(f"行 {i+1}: {line.strip()}")
-
                     valid_lines = 0  # 记录有效数据行数
                     # 解析数据
                     for line_num, line in enumerate(lines, 1):
                         try:
                             parts = line.strip().split()
                             if len(parts) >= 9:  # 确保有足够的数据列
-                                # 打印数据解析过程
-                                # if line_num <= 5:
-                                    # print(f"\n解析第{line_num}行:")
-                                    # print(f"原始数据: {parts}")
-
                                 year, month, day, hour = parts[0], parts[1], parts[2], parts[3]
 
                                 # 数据验证
                                 if not all(x.isdigit() for x in [year, month, day, hour]):
-                                    if line_num <= 5:
-                                        print(f"日期时间验证失败: {year}-{month}-{day} {hour}")
                                     continue
 
                                 # 温度、露点、气压、风向、风速、云量、降水量
@@ -124,12 +111,27 @@ class DataPreprocessor:
                                 wind_dir = float(parts[7]) if parts[7] != '-9999' else np.nan
                                 wind_speed = float(parts[8]) / 10.0 if parts[8] != '-9999' else np.nan
 
-                                # 云量和降水量可能不存在
-                                cloud = float(parts[9]) if len(parts) > 9 and parts[9] != '-9999' else np.nan
-                                precip = float(parts[10]) / 10.0 if len(parts) > 10 and parts[10] != '-9999' else np.nan
+                                # 云量和降水量处理
+                                cloud = np.nan
+                                precip = np.nan
 
-                                # if line_num <= 5:
-                                #     print(f"解析结果: 温度={temp}, 露点={dewp}, 气压={pressure}, 风向={wind_dir}, 风速={wind_speed}, 云量={cloud}, 降水量={precip}")
+                                # 检查是否有云量数据
+                                if len(parts) > 9:
+                                    try:
+                                        cloud = float(parts[9]) if parts[9] != '-9999' else np.nan
+                                    except ValueError:
+                                        cloud = np.nan
+
+                                # 检查是否有降水量数据（第12列，索引11）
+                                if len(parts) > 11:
+                                    try:
+                                        precip_str = parts[11].strip()
+                                        if precip_str != '-9999':
+                                            precip = float(precip_str) / 10.0
+                                        else:
+                                            precip = np.nan
+                                    except (ValueError, IndexError) as e:
+                                        precip = np.nan
 
                                 # 数据合理性检查 - 放宽条件
                                 # 1. 只检查非空值
@@ -156,15 +158,9 @@ class DataPreprocessor:
                                     }
                                     all_data.append(data_row)
                                     valid_lines += 1
-                                elif line_num <= 5:
-                                    print("数据合理性检查失败")
 
                         except (ValueError, IndexError) as e:
-                            if line_num <= 5:
-                                print(f"处理第{line_num}行时出错: {e}, 行内容: {line.strip()}")
                             continue
-
-                    print(f"站点 {station_id} 处理完成，有效数据行数: {valid_lines}")
 
                 except Exception as e:
                     print(f"处理文件{station_file}时出错: {e}")

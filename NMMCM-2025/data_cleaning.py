@@ -92,18 +92,29 @@ class DataCleaner:
             print(f"不支持的异常值检测方法: {method}")
             return np.zeros(len(series), dtype=bool)
 
-    def handle_missing_values(self, df, numeric_cols=None, categorical_cols=None, date_cols=None):
+    def smooth_fill(self, df, col, group_cols=['station_id', 'month']):
+        # 1. 先用同站点的时序线性插值
+        df[col] = df.groupby('station_id')[col].transform(lambda x: x.interpolate(method='linear', limit_direction='both'))
+        # 2. 再用分组中位数填充剩余缺失
+        df[col] = df.groupby(group_cols)[col].transform(lambda x: x.fillna(x.median()))
+        # 3. 最后用全局中位数兜底
+        df[col] = df[col].fillna(df[col].median())
+        return df
+
+    def fill_precip_by_distribution(self, df):
+        # 针对降水量，缺失时用同站点同月的经验分布采样填充
+        col = 'precipitation'
+        for (station, month), group in df.groupby(['station_id', 'month']):
+            valid = group[col].dropna()
+            if len(valid) > 0:
+                sampled = np.random.choice(valid, size=group[col].isna().sum(), replace=True)
+                df.loc[group.index[group[col].isna()], col] = sampled
+        return df
+
+    def handle_missing_values(self, df, numeric_cols=None, categorical_cols=None, date_cols=None, smooth_fill_cols=None):
         """
-        处理缺失值
-
-        参数:
-        df: 数据框
-        numeric_cols: 数值列列表
-        categorical_cols: 分类列列表
-        date_cols: 日期列列表
-
-        返回:
-        处理后的数据框
+        处理缺失值，支持气象数据的平滑填充
+        新增参数smooth_fill_cols：需要平滑填充的列
         """
         df_cleaned = df.copy()
 
@@ -125,29 +136,39 @@ class DataCleaner:
             if date_cols:
                 categorical_cols = [col for col in categorical_cols if col not in date_cols]
 
-        # 处理数值列缺失值
+        # --- 新增：气象数据平滑填充 ---
+        if smooth_fill_cols is not None:
+            for col in smooth_fill_cols:
+                if col in df_cleaned.columns and df_cleaned[col].isnull().any():
+                    print(f"对列 {col} 采用平滑插值+分组中位数填充...")
+                    df_cleaned = self.smooth_fill(df_cleaned, col)
+            # 降水量分布采样
+            if 'precipitation' in smooth_fill_cols and 'precipitation' in df_cleaned.columns:
+                if df_cleaned['precipitation'].isnull().any():
+                    print("对降水量采用分布采样填充...")
+                    df_cleaned = self.fill_precip_by_distribution(df_cleaned)
+
+        # --- 其余数值列用中位数填充 ---
         for col in numeric_cols:
-            if col in df.columns and df[col].isnull().any():
-                # 使用中位数填充缺失值
-                median_val = df[col].median()
+            if col in df_cleaned.columns and df_cleaned[col].isnull().any():
+                if smooth_fill_cols and col in smooth_fill_cols:
+                    continue  # 已处理
+                median_val = df_cleaned[col].median()
                 df_cleaned[col].fillna(median_val, inplace=True)
                 print(f"列 {col} 的缺失值已用中位数 {median_val} 填充")
 
         # 处理分类列缺失值
         for col in categorical_cols:
-            if col in df.columns and df[col].isnull().any():
-                # 使用众数填充缺失值
-                mode_val = df[col].mode()[0]
+            if col in df_cleaned.columns and df_cleaned[col].isnull().any():
+                mode_val = df_cleaned[col].mode()[0]
                 df_cleaned[col].fillna(mode_val, inplace=True)
                 print(f"列 {col} 的缺失值已用众数 {mode_val} 填充")
 
         # 处理日期列缺失值
         if date_cols:
             for col in date_cols:
-                if col in df.columns and df[col].isnull().any():
-                    # 对于日期列，使用前向填充
+                if col in df_cleaned.columns and df_cleaned[col].isnull().any():
                     df_cleaned[col].fillna(method='ffill', inplace=True)
-                    # 如果仍有缺失值（如首行），使用后向填充
                     df_cleaned[col].fillna(method='bfill', inplace=True)
                     print(f"列 {col} 的缺失值已用相邻日期填充")
 
@@ -176,7 +197,7 @@ class DataCleaner:
                 continue
 
             # 检测异常值
-            is_outlier = self.detect_outliers(df[col].dropna(), method='iqr', threshold=1.5)
+            is_outlier = self.detect_outliers(df[col].dropna(), method='iqr', threshold=3)
             outlier_indices = df[col].dropna().index[is_outlier]
 
             if len(outlier_indices) > 0:
@@ -199,8 +220,8 @@ class DataCleaner:
                     q1 = df[col].quantile(0.25)
                     q3 = df[col].quantile(0.75)
                     iqr = q3 - q1
-                    lower_bound = q1 - 1.5 * iqr
-                    upper_bound = q3 + 1.5 * iqr
+                    lower_bound = q1 - 3 * iqr
+                    upper_bound = q3 + 3 * iqr
 
                     # 替换异常值
                     df_cleaned.loc[df_cleaned[col] < lower_bound, col] = lower_bound
@@ -211,10 +232,7 @@ class DataCleaner:
 
     def clean_meteorological_data(self):
         """
-        清洗气象数据
-
-        返回:
-        清洗后的气象数据
+        清洗气象数据，采用平滑插值+分组中位数+分布采样填充
         """
         print("\n开始清洗气象数据...")
         df = self.load_data("附件1_meteorological_data.csv")
@@ -225,20 +243,24 @@ class DataCleaner:
         # 转换日期列
         df['datetime'] = pd.to_datetime(df['datetime'])
 
-        # 处理缺失值 - 排除precipitation列，因为它全部为NaN
+        # 处理缺失值 - 平滑填充气象变量
         numeric_cols = ['temperature', 'dew_point', 'pressure', 'wind_direction',
-                       'wind_speed', 'cloud_cover']
+                       'wind_speed', 'cloud_cover', 'precipitation']
         date_cols = ['datetime']
+        smooth_fill_cols = ['temperature', 'dew_point', 'pressure', 'wind_speed', 'cloud_cover', 'precipitation']
 
-        df_cleaned = self.handle_missing_values(df, numeric_cols=numeric_cols, date_cols=date_cols)
+        # 若无station_id/month则补充
+        if 'month' not in df.columns:
+            df['month'] = df['datetime'].dt.month
+        if 'station_id' not in df.columns:
+            print('警告：缺少station_id，无法分组平滑填充')
+            smooth_fill_cols = None
 
-        # 对于precipitation列，由于全部为NaN，直接设置为0
-        if 'precipitation' in df_cleaned.columns:
-            print(f"列 precipitation 全部为NaN，将其设置为0")
-            df_cleaned['precipitation'] = 0.0
+        df_cleaned = self.handle_missing_values(df, numeric_cols=numeric_cols, date_cols=date_cols, smooth_fill_cols=smooth_fill_cols)
 
-        # 处理异常值 - 同样排除precipitation列
-        df_cleaned = self.handle_outliers(df_cleaned, numeric_cols=numeric_cols)
+        # 处理异常值 - 排除precipitation列
+        outlier_cols = [c for c in numeric_cols if c != 'precipitation']
+        df_cleaned = self.handle_outliers(df_cleaned, numeric_cols=outlier_cols)
 
         # 保存清洗后的数据
         output_file = os.path.join(self.output_dir, "附件1_meteorological_data_cleaned.csv")

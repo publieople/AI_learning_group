@@ -73,41 +73,46 @@ def test_meteorological_cleaning(cleaner):
     # 绘制清洗前后对比图
     try:
         plt.figure(figsize=(15, 10))
-
-        # 温度对比
-        plt.subplot(2, 2, 1)
-        sns.histplot(raw_data['temperature'].dropna(), color='blue', alpha=0.5, label='原始数据')
-        sns.histplot(cleaned_data['temperature'].dropna(), color='red', alpha=0.5, label='清洗后数据')
-        plt.title('温度分布对比')
-        plt.legend()
-
-        # 风速对比
-        plt.subplot(2, 2, 2)
-        sns.histplot(raw_data['wind_speed'].dropna(), color='blue', alpha=0.5, label='原始数据')
-        sns.histplot(cleaned_data['wind_speed'].dropna(), color='red', alpha=0.5, label='清洗后数据')
-        plt.title('风速分布对比')
-        plt.legend()
-
-        # 降水量对比
-        plt.subplot(2, 2, 3)
-        sns.histplot(raw_data['precipitation'].dropna(), color='blue', alpha=0.5, label='原始数据')
-        sns.histplot(cleaned_data['precipitation'].dropna(), color='red', alpha=0.5, label='清洗后数据')
-        plt.title('降水量分布对比')
-        plt.legend()
-
-        # 气压对比
-        plt.subplot(2, 2, 4)
-        sns.histplot(raw_data['pressure'].dropna(), color='blue', alpha=0.5, label='原始数据')
-        sns.histplot(cleaned_data['pressure'].dropna(), color='red', alpha=0.5, label='清洗后数据')
-        plt.title('气压分布对比')
-        plt.legend()
-
+        cols = ['temperature', 'wind_speed', 'precipitation', 'pressure']
+        for i, col in enumerate(cols, 1):
+            ax = plt.subplot(2, 2, i)
+            auto_histplot(ax, raw_data, cleaned_data, col)
         plt.tight_layout()
         plt.savefig('.\processed_data\cleaned\气象数据清洗效果对比.png')
         plt.close()
         print("已保存气象数据清洗效果对比图")
     except Exception as e:
         print(f"绘图时出错: {e}")
+
+def auto_histplot(ax, raw, clean, col):
+    # 自动分箱和x轴范围
+    if col == 'temperature':
+        bins = np.linspace(-45, 45, 91)
+        xlim = (-45, 45)
+    elif col == 'dew_point':
+        bins = np.linspace(-50, 35, 86)
+        xlim = (-50, 35)
+    elif col == 'pressure':
+        bins = np.linspace(950, 1080, 66)
+        xlim = (950, 1080)
+    elif col == 'wind_speed':
+        bins = np.linspace(0, 15, 31)
+        xlim = (0, 15)
+    elif col == 'cloud_cover':
+        bins = np.arange(-0.5, 9.5, 1)
+        xlim = (0, 8)
+    elif col == 'precipitation':
+        bins = np.linspace(0, 20, 41)
+        xlim = (0, 20)
+    else:
+        bins = 'auto'
+        xlim = None
+    sns.histplot(raw[col].dropna(), color='blue', alpha=0.5, label='原始数据', bins=bins, ax=ax)
+    sns.histplot(clean[col].dropna(), color='red', alpha=0.5, label='清洗后数据', bins=bins, ax=ax)
+    ax.set_title(f"{col}分布对比")
+    if xlim:
+        ax.set_xlim(xlim)
+    ax.legend()
 
 def test_subway_traffic_cleaning(cleaner):
     """测试轨道交通数据清洗效果"""
@@ -161,21 +166,21 @@ def test_subway_traffic_cleaning(cleaner):
 
         # 客运量对比
         plt.subplot(2, 2, 1)
-        sns.boxplot(y=raw_data['客运量（万人次）'].dropna(), color='blue', label='原始数据')
-        plt.title('原始客运量箱线图')
+        sns.boxplot(y=raw_data['客运量（万人次）'].dropna(), color='blue')
+        plt.title(f"原始客运量箱线图")
 
         plt.subplot(2, 2, 2)
-        sns.boxplot(y=cleaned_data['客运量（万人次）'].dropna(), color='red', label='清洗后数据')
-        plt.title('清洗后客运量箱线图')
+        sns.boxplot(y=cleaned_data['客运量（万人次）'].dropna(), color='red')
+        plt.title(f"清洗后客运量箱线图")
 
         # 运营里程对比
         plt.subplot(2, 2, 3)
-        sns.boxplot(y=raw_data['运营里程（公里）'].dropna(), color='blue', label='原始数据')
-        plt.title('原始运营里程箱线图')
+        sns.boxplot(y=raw_data['运营里程（公里）'].dropna(), color='blue')
+        plt.title(f"原始运营里程箱线图")
 
         plt.subplot(2, 2, 4)
-        sns.boxplot(y=cleaned_data['运营里程（公里）'].dropna(), color='red', label='清洗后数据')
-        plt.title('清洗后运营里程箱线图')
+        sns.boxplot(y=cleaned_data['运营里程（公里）'].dropna(), color='red')
+        plt.title(f"清洗后运营里程箱线图")
 
         plt.tight_layout()
         plt.savefig('.\processed_data\cleaned\轨道交通数据清洗效果对比.png')
@@ -236,31 +241,31 @@ def test_marathon_history_cleaning(cleaner):
 
         # 报名人数对比
         plt.subplot(2, 2, 1)
-        sns.histplot(raw_data['报名人数'].dropna(), color='blue', alpha=0.5, label='原始数据')
-        sns.histplot(cleaned_data['报名人数'].dropna(), color='red', alpha=0.5, label='清洗后数据')
-        plt.title('报名人数分布对比')
+        sns.histplot(raw_data['报名人数'].dropna(), color='blue', alpha=0.5, label='原始数据', bins='auto')
+        sns.histplot(cleaned_data['报名人数'].dropna(), color='red', alpha=0.5, label='清洗后数据', bins='auto')
+        plt.title(f"报名人数分布对比")
         plt.legend()
 
         # 完赛人数对比
         plt.subplot(2, 2, 2)
-        sns.histplot(raw_data['完赛人数'].dropna(), color='blue', alpha=0.5, label='原始数据')
-        sns.histplot(cleaned_data['完赛人数'].dropna(), color='red', alpha=0.5, label='清洗后数据')
-        plt.title('完赛人数分布对比')
+        sns.histplot(raw_data['完赛人数'].dropna(), color='blue', alpha=0.5, label='原始数据', bins='auto')
+        sns.histplot(cleaned_data['完赛人数'].dropna(), color='red', alpha=0.5, label='清洗后数据', bins='auto')
+        plt.title(f"完赛人数分布对比")
         plt.legend()
 
         # 完赛率对比
         if '完赛率' in raw_data.columns and '完赛率' in cleaned_data.columns:
             plt.subplot(2, 2, 3)
-            sns.histplot(raw_data['完赛率'].dropna(), color='blue', alpha=0.5, label='原始数据')
-            sns.histplot(cleaned_data['完赛率'].dropna(), color='red', alpha=0.5, label='清洗后数据')
-            plt.title('完赛率分布对比')
+            sns.histplot(raw_data['完赛率'].dropna(), color='blue', alpha=0.5, label='原始数据', bins='auto')
+            sns.histplot(cleaned_data['完赛率'].dropna(), color='red', alpha=0.5, label='清洗后数据', bins='auto')
+            plt.title(f"完赛率分布对比")
             plt.legend()
 
         # 报名费对比
         plt.subplot(2, 2, 4)
-        sns.histplot(raw_data['报名费'].dropna(), color='blue', alpha=0.5, label='原始数据')
-        sns.histplot(cleaned_data['报名费'].dropna(), color='red', alpha=0.5, label='清洗后数据')
-        plt.title('报名费分布对比')
+        sns.histplot(raw_data['报名费'].dropna(), color='blue', alpha=0.5, label='原始数据', bins='auto')
+        sns.histplot(cleaned_data['报名费'].dropna(), color='red', alpha=0.5, label='清洗后数据', bins='auto')
+        plt.title(f"报名费分布对比")
         plt.legend()
 
         plt.tight_layout()

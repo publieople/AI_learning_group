@@ -5,6 +5,8 @@ from sklearn.linear_model import LinearRegression
 import matplotlib.pyplot as plt
 import matplotlib
 import os
+import seaborn as sns
+
 matplotlib.rcParams['font.sans-serif'] = ['SimHei']  # 用来正常显示中文标签
 matplotlib.rcParams['axes.unicode_minus'] = False  # 用来正常显示负号
 
@@ -348,7 +350,7 @@ def build_comprehensive_model(weather_data, city_capacity, population_data, regi
     return comprehensive_df
 
 # 优化赛事规模与频次
-def optimize_event_parameters(comprehensive_scores, city_capacity, population_data):
+def optimize_event_parameters(comprehensive_scores, monthly_capacity, population_data):
     """为每个城市优化赛事规模与频次"""
     # 将城市按综合评分排序
     city_rankings = comprehensive_scores.groupby('city')['total_score'].max().sort_values(ascending=False)
@@ -375,7 +377,7 @@ def optimize_event_parameters(comprehensive_scores, city_capacity, population_da
         second_best_month = suitable_months['month'].iloc[1] if len(suitable_months) > 1 else None
 
         # 计算赛事规模：基于城市交通承载能力和人口规模
-        city_transport = city_capacity[city_capacity['city'] == city]
+        city_transport = monthly_capacity[monthly_capacity['city'] == city]
 
         # 默认规模
         event_size = 10000
@@ -453,7 +455,7 @@ def main():
 
     # 城市承载能力分析
     print("分析城市承载能力...")
-    city_capacity = analyze_city_capacity(transit_data)
+    monthly_capacity = analyze_city_capacity(transit_data)
 
     # 人口规模分析
     print("分析人口规模...")
@@ -466,13 +468,13 @@ def main():
     # 构建综合评分模型
     print("构建综合评分模型...")
     comprehensive_scores = build_comprehensive_model(
-        weather_suitability, city_capacity, population_analysis, registration_trends
+        weather_suitability, monthly_capacity, population_analysis, registration_trends
     )
 
     # 优化赛事规模与频次
     print("优化赛事规模与频次...")
     event_recommendations = optimize_event_parameters(
-        comprehensive_scores, city_capacity, population_analysis
+        comprehensive_scores, monthly_capacity, population_analysis
     )
 
     # 检查结果是否为空
@@ -513,34 +515,177 @@ def main():
         event_recommendations.to_csv(result_csv_path, index=False, encoding='utf-8-sig')
         print(f"结果数据已保存至: {result_csv_path}")
 
-        # 可视化：不同城市的最佳月份分布
-        plt.figure(figsize=(12, 6))
-        best_month_counts = event_recommendations['best_month'].value_counts().sort_index()
-        if not best_month_counts.empty:
-            best_month_counts.plot(kind='bar')
-            plt.title('各城市最适宜举办马拉松的月份分布')
-            plt.xlabel('月份')
-            plt.ylabel('城市数量')
-            plt.savefig(f'{output_dir}/马拉松最佳月份分布.png')
-            print(f"已生成月份分布图：{output_dir}/马拉松最佳月份分布.png")
-        else:
-            print("没有足够数据生成月份分布图")
+        # 1. 气象适宜性分析可视化
+        plt.figure(figsize=(15, 8))
+        # 确保数据结构正确
+        if 'city' in weather_suitability.columns and 'month' in weather_suitability.columns and 'comfort_index' in weather_suitability.columns:
+            # 创建数据透视表
+            weather_pivot = pd.pivot_table(
+                data=weather_suitability,
+                values='comfort_index',
+                index='city',  # 城市作为行索引
+                columns='month',  # 月份作为列索引
+                aggfunc='mean'  # 使用平均值聚合
+            )
 
-        # 可视化：城市评分前20名
-        if len(event_recommendations) >= 5:  # 至少需要5个城市才生成排名图
-            plt.figure(figsize=(12, 8))
-            top_cities = event_recommendations.sort_values('total_score', ascending=False).head(20)
-            top_cities.plot(x='city', y='total_score', kind='bar', figsize=(12, 6))
-            plt.title('马拉松赛事综合评分前20城市')
-            plt.xlabel('城市')
-            plt.ylabel('综合评分')
+            # 绘制热力图
+            sns.heatmap(weather_pivot, cmap='YlOrRd', annot=True, fmt='.1f')
+            plt.title('各城市月度气象舒适度指数热力图')
+            plt.xlabel('月份')
+            plt.ylabel('城市')
             plt.tight_layout()
-            plt.savefig(f'{output_dir}/马拉松综合评分前20城市.png')
-            print(f"已生成城市评分图：{output_dir}/马拉松综合评分前20城市.png")
+            plt.savefig(f'{output_dir}/气象舒适度热力图.png')
+            print(f"已生成气象舒适度热力图：{output_dir}/气象舒适度热力图.png")
         else:
-            print("可用城市数量不足，无法生成城市评分图")
+            print("气象数据结构不符合要求，无法生成热力图")
+            print(f"可用列: {weather_suitability.columns.tolist()}")
+
+        # 2. 城市承载能力分析可视化
+        plt.figure(figsize=(12, 6))
+        # 确保数据结构正确
+        if 'city' in monthly_capacity.columns and '月份' in monthly_capacity.columns and 'transport_score' in monthly_capacity.columns:
+            # 创建数据透视表
+            capacity_pivot = pd.pivot_table(
+                data=monthly_capacity,
+                values='transport_score',
+                index='city',
+                columns='月份',
+                aggfunc='mean'
+            )
+
+            # 绘制线图
+            capacity_pivot.T.plot(kind='line', marker='o')
+            plt.title('各城市月度交通承载能力评分')
+            plt.xlabel('月份')
+            plt.ylabel('交通承载能力评分')
+            plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+            plt.tight_layout()
+            plt.savefig(f'{output_dir}/城市交通承载能力.png')
+            print(f"已生成城市交通承载能力图：{output_dir}/城市交通承载能力.png")
+        else:
+            print("交通数据结构不符合要求，无法生成交通承载能力图")
+            print(f"city_capacity列: {city_capacity.columns.tolist()}")
+            print(f"monthly_capacity列: {monthly_capacity.columns.tolist()}")
+
+        # 3. 人口规模分析可视化
+        plt.figure(figsize=(12, 6))
+        population_analysis.sort_values('total_score', ascending=False).head(20).plot(
+            x='city',
+            y=['population_size_score', 'age_ratio_score', 'total_score'],
+            kind='bar'
+        )
+        plt.title('人口规模评分前20城市')
+        plt.xlabel('城市')
+        plt.ylabel('评分')
+        plt.xticks(rotation=45)
+        plt.legend(['人口规模评分', '年龄结构评分', '总评分'])
+        plt.tight_layout()
+        plt.savefig(f'{output_dir}/人口规模评分.png')
+        print(f"已生成人口规模评分图：{output_dir}/人口规模评分.png")
+
+        # 4. 综合评分雷达图
+        plt.figure(figsize=(10, 10))
+        top_cities = event_recommendations.sort_values('total_score', ascending=False).head(5)
+
+        # 准备雷达图数据
+        categories = ['气象评分', '交通评分', '人口评分', '热度评分']
+        angles = np.linspace(0, 2*np.pi, len(categories), endpoint=False)
+        angles = np.concatenate((angles, [angles[0]]))  # 闭合图形
+
+        # 获取每个城市的评分数据
+        ax = plt.subplot(111, polar=True)
+        for _, city_data in top_cities.iterrows():
+            # 从comprehensive_scores中获取该城市最佳月份的所有评分
+            city_month_data = comprehensive_scores[
+                (comprehensive_scores['city'] == city_data['city']) &
+                (comprehensive_scores['month'] == city_data['best_month'])
+            ]
+
+            if len(city_month_data) > 0:
+                weather_score = city_month_data['weather_score'].iloc[0]
+                transport_score = city_month_data['transport_score'].iloc[0]
+                population_score = city_month_data['population_score'].iloc[0]
+                popularity_score = city_month_data['popularity_score'].iloc[0]
+            else:
+                weather_score = 0  # 默认值
+                transport_score = 0
+                population_score = 0
+                popularity_score = 0
+
+            values = [
+                weather_score,
+                transport_score,
+                population_score,
+                popularity_score
+            ]
+            values = np.concatenate((values, [values[0]]))  # 闭合图形
+            ax.plot(angles, values, 'o-', linewidth=2, label=city_data['city'])
+            ax.fill(angles, values, alpha=0.25)
+
+        plt.xticks(angles[:-1], categories)
+        plt.ylim(0, 10)
+        plt.title('Top 5城市综合评分雷达图')
+        plt.legend(loc='upper right', bbox_to_anchor=(0.3, 0.3))
+        plt.subplots_adjust(bottom=0.2, top=0.8, left=0.2, right=0.8)
+        plt.tight_layout()
+        plt.savefig(f'{output_dir}/综合评分雷达图.png')
+        print(f"已生成综合评分雷达图：{output_dir}/综合评分雷达图.png")
+
+        # 5. 赛事规模与频次分布
+        plt.figure(figsize=(12, 6))
+        event_recommendations['recommended_size'].hist(bins=20)
+        plt.title('推荐赛事规模分布')
+        plt.xlabel('建议参赛人数')
+        plt.ylabel('频次')
+        plt.tight_layout()
+        plt.savefig(f'{output_dir}/赛事规模分布.png')
+        print(f"已生成赛事规模分布图：{output_dir}/赛事规模分布.png")
+
+        # 6. 添加城市评分排名图
+        plt.figure(figsize=(12, 6))
+        top_20_cities = event_recommendations.sort_values('total_score', ascending=False).head(20)
+        plt.barh(top_20_cities['city'], top_20_cities['total_score'])
+        plt.title('马拉松赛事综合评分前20城市')
+        plt.xlabel('综合评分')
+        plt.ylabel('城市')
+        plt.tight_layout()
+        plt.savefig(f'{output_dir}/城市评分排名.png')
+        print(f"已生成城市评分排名图：{output_dir}/城市评分排名.png")
+
+        # 7. 添加综合评分热力图
+        plt.figure(figsize=(15, 10))
+        # 确保数据结构正确
+        if 'city' in comprehensive_scores.columns and 'month' in comprehensive_scores.columns and 'total_score' in comprehensive_scores.columns:
+            # 创建数据透视表
+            comprehensive_pivot = pd.pivot_table(
+                data=comprehensive_scores,
+                values='total_score',
+                index='city',  # 城市作为行索引
+                columns='month',  # 月份作为列索引
+                aggfunc='mean'  # 使用平均值聚合
+            )
+
+            # 选择前15个城市以保持图表清晰
+            top_cities = event_recommendations.sort_values('total_score', ascending=False).head(15)['city'].tolist()
+            if top_cities:
+                comprehensive_pivot = comprehensive_pivot.loc[comprehensive_pivot.index.isin(top_cities)]
+
+            # 绘制热力图
+            sns.heatmap(comprehensive_pivot, cmap='YlOrRd', annot=True, fmt='.1f')
+            plt.title('各城市月度综合评分热力图')
+            plt.xlabel('月份')
+            plt.ylabel('城市')
+            plt.tight_layout()
+            plt.savefig(f'{output_dir}/各城市月度综合评分热力图.png')
+            print(f"已生成各城市月度综合评分热力图：{output_dir}/各城市月度综合评分热力图.png")
+        else:
+            print("综合评分数据结构不符合要求，无法生成热力图")
+            print(f"可用列: {comprehensive_scores.columns.tolist()}")
+
     except Exception as e:
         print(f"生成可视化图表时出错: {e}")
+        import traceback
+        print(traceback.format_exc())
 
 if __name__ == "__main__":
     main()

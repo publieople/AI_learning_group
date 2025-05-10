@@ -598,6 +598,116 @@ class DataPreprocessor:
             print(f"处理超级马拉松数据时出错: {e}")
             return None
 
+    def process_xian_route_data(self):
+        """
+        处理西安市赛跑线路相关数据，包括地铁、住宿、餐饮、景点、道路、公交和地形数据
+        """
+        print("开始处理西安市赛跑线路相关数据...")
+
+        # 1. 加载住宿设施数据（附件5）
+        hotel_file = os.path.join(self.base_path, "附件5：西安市基础数据", "西安市住宿服务数据.csv")
+        try:
+            hotel_df = pd.read_csv(hotel_file, encoding='utf-8')
+            print(f"住宿设施数据加载成功，共 {len(hotel_df)} 条记录")
+            # 假设住宿容量列名为'capacity'
+            if 'capacity' not in hotel_df.columns:
+                hotel_df['capacity'] = 100  # 默认值
+            # 保存为CSV便于后续使用
+            hotel_output = os.path.join(self.output_dir, "附件5_xian_hotels.csv")
+            hotel_df.to_csv(hotel_output, index=False)
+        except Exception as e:
+            print(f"加载住宿设施数据时出错: {e}")
+            hotel_df = None
+
+        # 2. 加载餐饮设施数据（附件5）
+        restaurant_file = os.path.join(self.base_path, "附件5：西安市基础数据", "西安市餐饮数据.csv")
+        try:
+            restaurant_df = pd.read_csv(restaurant_file, encoding='utf-8')
+            print(f"餐饮设施数据加载成功，共 {len(restaurant_df)} 条记录")
+            # 保存为CSV便于后续使用
+            restaurant_output = os.path.join(self.output_dir, "附件5_xian_restaurants.csv")
+            restaurant_df.to_csv(restaurant_output, index=False)
+        except Exception as e:
+            print(f"加载餐饮设施数据时出错: {e}")
+            restaurant_df = None
+
+        # 3. 加载景点数据（附件5）
+        attraction_file = os.path.join(self.base_path, "附件5：西安市基础数据", "西安市风景名胜数据.csv")
+        try:
+            attraction_df = pd.read_csv(attraction_file, encoding='utf-8')
+            print(f"景点数据加载成功，共 {len(attraction_df)} 条记录")
+            # 保存为CSV便于后续使用
+            attraction_output = os.path.join(self.output_dir, "附件5_xian_attractions.csv")
+            attraction_df.to_csv(attraction_output, index=False)
+        except Exception as e:
+            print(f"加载景点数据时出错: {e}")
+            attraction_df = None
+
+        # 4. 加载地形数据（附件6）
+        terrain_file = os.path.join(self.base_path, "附件6：陕西省12.5分辨率地形数据", "陕西WGS84.tif")
+        try:
+            with rasterio.open(terrain_file) as src:
+                terrain_data = src.read(1)
+                meta = src.meta
+                print(f"地形数据加载成功，形状: {terrain_data.shape}")
+        except Exception as e:
+            print(f"加载地形数据时出错: {e}")
+            terrain_data = None
+            meta = None
+
+        # 5. 加载道路数据（附件7）
+        road_file = os.path.join(self.base_path, "附件7：2025年西安市道路数据", "路线连接信息.csv")
+        try:
+            road_df = pd.read_csv(road_file, encoding='utf-8')
+            print(f"道路连接信息加载成功，共 {len(road_df)} 条记录")
+            # 保存为CSV便于后续使用
+            road_output = os.path.join(self.output_dir, "附件7_xian_road_connections.csv")
+            road_df.to_csv(road_output, index=False)
+        except Exception as e:
+            print(f"加载道路连接信息时出错: {e}")
+            road_df = None
+
+        # 6. 加载公交站点数据（附件8）
+        bus_file = os.path.join(self.base_path, "附件8：西安_2024年公交站点和线路数据", "公交站点（含经纬度）.xlsx")
+        try:
+            bus_df = pd.read_excel(bus_file)
+            print(f"公交站点数据加载成功，共 {len(bus_df)} 条记录")
+            # 重命名列以统一格式
+            bus_df.columns = ['station_name', 'latitude', 'longitude']
+            # 保存为CSV便于后续使用
+            bus_output = os.path.join(self.output_dir, "附件8_xian_bus_stations.csv")
+            bus_df.to_csv(bus_output, index=False)
+        except Exception as e:
+            print(f"加载公交站点数据时出错: {e}")
+            bus_df = None
+
+        # 7. 加载地铁站点数据（附件9）
+        subway_file = os.path.join(self.base_path, "附件9：西安_2024年地铁数据", "地铁站点（含经纬度）.xlsx")
+        try:
+            subway_df = pd.read_excel(subway_file)
+            print(f"地铁站点数据加载成功，共 {len(subway_df)} 条记录")
+            # 重命名列以统一格式
+            subway_df.columns = ['station_name', 'latitude', 'longitude']
+            # 保存为CSV便于后续使用
+            subway_output = os.path.join(self.output_dir, "附件9_xian_subway_stations.csv")
+            subway_df.to_csv(subway_output, index=False)
+        except Exception as e:
+            print(f"加载地铁站点数据时出错: {e}")
+            subway_df = None
+
+        print("西安市赛跑线路相关数据处理完成！")
+
+        return {
+            'subway': subway_df,
+            'bus': bus_df,
+            'hotels': hotel_df,
+            'restaurants': restaurant_df,
+            'attractions': attraction_df,
+            'roads': road_df,
+            'terrain': terrain_data,
+            'terrain_meta': meta
+        }
+
     def run_all_preprocessing(self):
         """
         运行所有预处理步骤，并添加数据清洗环节
@@ -675,6 +785,8 @@ if __name__ == "__main__":
                 processed_data['population'] = preprocessor.process_population_data()
             elif attachment == "4":
                 processed_data['population_density'], _ = preprocessor.process_population_density()
+            elif attachment == "5" or attachment == "6" or attachment == "7" or attachment == "8" or attachment == "9":
+                processed_data['xian_route'] = preprocessor.process_xian_route_data()
             elif attachment == "11":
                 processed_data['ultra_marathon'] = preprocessor.process_ultra_marathon_data()
             elif attachment == "12":

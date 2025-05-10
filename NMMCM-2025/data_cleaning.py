@@ -568,6 +568,96 @@ class DataCleaner:
 
         return df_cleaned
 
+    def clean_xian_route_data(self):
+        """
+        清洗西安市赛跑线路相关数据
+        """
+        print("\n开始清洗西安市赛跑线路相关数据...")
+        cleaned_data = {}
+
+        # 1. 加载地铁站点数据
+        subway_df = self.load_data("附件9_xian_subway_stations.csv")
+        if subway_df is not None:
+            # 确保经纬度在西安范围内（经度108-109.5，纬度33.5-35）
+            subway_df = subway_df[
+                (subway_df['longitude'] > 108) & 
+                (subway_df['longitude'] < 109.5) & 
+                (subway_df['latitude'] > 33.5) & 
+                (subway_df['latitude'] < 35)
+            ]
+            print(f"地铁站点数据清洗完成，共 {len(subway_df)} 条记录")
+            # 保存清洗后的数据
+            output_file = os.path.join(self.output_dir, "附件9_xian_subway_stations_cleaned.csv")
+            subway_df.to_csv(output_file, index=False)
+            cleaned_data['subway'] = subway_df
+
+        # 2. 加载住宿设施数据
+        hotel_df = self.load_data("附件5_xian_hotels.csv")
+        if hotel_df is not None:
+            # 假设住宿容量列名为'capacity'
+            if 'capacity' in hotel_df.columns:
+                # 处理缺失值
+                hotel_df['capacity'] = hotel_df['capacity'].fillna(100)
+                # 处理异常值
+                q1 = hotel_df['capacity'].quantile(0.25)
+                q3 = hotel_df['capacity'].quantile(0.75)
+                iqr = q3 - q1
+                lower_bound = q1 - 3 * iqr
+                upper_bound = q3 + 3 * iqr
+                hotel_df = hotel_df[(hotel_df['capacity'] >= lower_bound) & (hotel_df['capacity'] <= upper_bound)]
+            print(f"住宿设施数据清洗完成，共 {len(hotel_df)} 条记录")
+            # 保存清洗后的数据
+            output_file = os.path.join(self.output_dir, "附件5_xian_hotels_cleaned.csv")
+            hotel_df.to_csv(output_file, index=False)
+            cleaned_data['hotels'] = hotel_df
+
+        # 3. 加载餐饮设施数据
+        restaurant_df = self.load_data("附件5_xian_restaurants.csv")
+        if restaurant_df is not None:
+            print(f"餐饮设施数据清洗完成，共 {len(restaurant_df)} 条记录")
+            # 保存清洗后的数据
+            output_file = os.path.join(self.output_dir, "附件5_xian_restaurants_cleaned.csv")
+            restaurant_df.to_csv(output_file, index=False)
+            cleaned_data['restaurants'] = restaurant_df
+
+        # 4. 加载景点数据
+        attraction_df = self.load_data("附件5_xian_attractions.csv")
+        if attraction_df is not None:
+            print(f"景点数据清洗完成，共 {len(attraction_df)} 条记录")
+            # 保存清洗后的数据
+            output_file = os.path.join(self.output_dir, "附件5_xian_attractions_cleaned.csv")
+            attraction_df.to_csv(output_file, index=False)
+            cleaned_data['attractions'] = attraction_df
+
+        # 5. 加载道路连接信息
+        road_df = self.load_data("附件7_xian_road_connections.csv")
+        if road_df is not None:
+            print(f"道路连接信息清洗完成，共 {len(road_df)} 条记录")
+            # 保存清洗后的数据
+            output_file = os.path.join(self.output_dir, "附件7_xian_road_connections_cleaned.csv")
+            road_df.to_csv(output_file, index=False)
+            cleaned_data['roads'] = road_df
+
+        # 6. 加载公交站点数据
+        bus_df = self.load_data("附件8_xian_bus_stations.csv")
+        if bus_df is not None:
+            # 确保经纬度在西安范围内（经度108-109.5，纬度33.5-35）
+            bus_df = bus_df[
+                (bus_df['longitude'] > 108) & 
+                (bus_df['longitude'] < 109.5) & 
+                (bus_df['latitude'] > 33.5) & 
+                (bus_df['latitude'] < 35)
+            ]
+            print(f"公交站点数据清洗完成，共 {len(bus_df)} 条记录")
+            # 保存清洗后的数据
+            output_file = os.path.join(self.output_dir, "附件8_xian_bus_stations_cleaned.csv")
+            bus_df.to_csv(output_file, index=False)
+            cleaned_data['bus'] = bus_df
+
+        print("西安市赛跑线路相关数据清洗完成！")
+
+        return cleaned_data
+
     def clean_all_data(self):
         """
         清洗所有数据

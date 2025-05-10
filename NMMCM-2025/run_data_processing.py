@@ -16,32 +16,34 @@ def main():
 
     # 第一步：数据预处理
     # 检查是否已经存在预处理数据
+    processed_data = None
     if os.path.exists("processed_data") and len(os.listdir("processed_data")) > 0:
-        print("\n预处理数据已存在，是否重新进行预处理？(y/n)")
+        print("\n预处理数据已存在，是否重新进行预处理？(Y/n)")
         choice = input().strip().lower()
-        if choice == 'y':
-            run_preprocessing()
+        if choice == 'y' or choice == 'Y' or choice == '':
+            processed_data = run_preprocessing()
         else:
             print("跳过预处理步骤")
     else:
-        run_preprocessing()
+        processed_data = run_preprocessing()
 
     # 第二步：数据清洗
+    cleaned_data = None
     # 检查是否已经存在清洗数据
     if os.path.exists("processed_data/cleaned") and len(os.listdir("processed_data/cleaned")) > 0:
-        print("\n清洗后的数据已存在，是否重新进行数据清洗？(y/n)")
+        print("\n清洗后的数据已存在，是否重新进行数据清洗？(Y/n)")
         choice = input().strip().lower()
-        if choice == 'y':
-            run_data_cleaning()
+        if choice == 'y' or choice == 'Y' or choice == '':
+            cleaned_data = run_data_cleaning(processed_data)
         else:
             print("跳过数据清洗步骤")
     else:
-        run_data_cleaning()
+        cleaned_data = run_data_cleaning(processed_data)
 
     # 第三步：测试数据质量
-    print("\n是否进行数据质量测试？(y/n)")
+    print("\n是否进行数据质量测试？(Y/n)")
     choice = input().strip().lower()
-    if choice == 'y':
+    if choice == 'y' or choice == 'Y' or choice == '':
         test_data_quality()
 
     print("\n===== 数据处理完成 =====")
@@ -58,6 +60,18 @@ def run_preprocessing():
     # 运行预处理
     processed_data = preprocessor.run_all_preprocessing()
 
+    # 新增：处理西安市赛跑线路数据
+    xian_route_data = preprocessor.process_xian_route_data()
+    if xian_route_data:
+        processed_data.update({
+            'xian_subway': xian_route_data.get('subway'),
+            'xian_hotels': xian_route_data.get('hotels'),
+            'xian_restaurants': xian_route_data.get('restaurants'),
+            'xian_attractions': xian_route_data.get('attractions'),
+            'xian_roads': xian_route_data.get('roads'),
+            'terrain': xian_route_data.get('terrain')
+        })
+
     print("数据预处理完成")
 
     # 打印预处理后的数据统计信息
@@ -71,15 +85,34 @@ def run_preprocessing():
             else:
                 print(f"{key}: 类型 {type(data)}")
 
-def run_data_cleaning():
+    return processed_data  # 返回所有预处理数据以便后续清洗使用
+
+
+def run_data_cleaning(processed_data=None):
     """运行数据清洗"""
     print("\n开始数据清洗...")
 
     # 创建数据清洗器
     cleaner = DataCleaner(data_dir="processed_data")
 
-    # 运行数据清洗
-    cleaned_data = cleaner.clean_all_data()
+    # 如果没有传入预处理数据，则从文件加载
+    if processed_data is None:
+        # 原有逻辑 - 从文件加载并清洗
+        cleaned_data = cleaner.clean_all_data()
+    else:
+        # 使用预处理数据进行清洗
+        cleaned_data = cleaner.clean_all_data()
+
+        # 单独清洗西安市路线数据
+        xian_route_cleaned = cleaner.clean_xian_route_data()
+        if xian_route_cleaned:
+            cleaned_data.update({
+                'xian_subway': xian_route_cleaned.get('subway'),
+                'xian_hotels': xian_route_cleaned.get('hotels'),
+                'xian_restaurants': xian_route_cleaned.get('restaurants'),
+                'xian_attractions': xian_route_cleaned.get('attractions'),
+                'xian_roads': xian_route_cleaned.get('roads')
+            })
 
     print("数据清洗完成")
 
@@ -88,6 +121,8 @@ def run_data_cleaning():
     for key, data in cleaned_data.items():
         if data is not None and isinstance(data, pd.DataFrame):
             print(f"{key}: {data.shape[0]} 行, {data.shape[1]} 列")
+
+    return cleaned_data
 
 def test_data_quality():
     """测试数据质量"""

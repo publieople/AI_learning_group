@@ -59,6 +59,7 @@ class DataPreprocessor:
         all_data = []
         processed_stations = set()  # 用于记录已处理的站点
         error_files = []  # 记录处理失败的文件
+        precip_stats = {'total': 0, 'non_zero': 0, 'zero': 0}  # 统计降水量数据
 
         for year in years:
             print(f"\n处理{year}年的气象数据...")
@@ -127,7 +128,13 @@ class DataPreprocessor:
                                     try:
                                         precip_str = parts[11].strip()
                                         if precip_str != '-9999':
+                                            # 降水量数据需要除以10转换为毫米
                                             precip = float(precip_str) / 10.0
+                                            precip_stats['total'] += 1
+                                            if precip > 0:
+                                                precip_stats['non_zero'] += 1
+                                            else:
+                                                precip_stats['zero'] += 1
                                         else:
                                             precip = np.nan
                                     except (ValueError, IndexError) as e:
@@ -190,6 +197,10 @@ class DataPreprocessor:
         print(f"总记录数: {len(df)}")
         print(f"站点数量: {df['station_id'].nunique()}")
         print(f"时间范围: {df['datetime'].min()} 至 {df['datetime'].max()}")
+        print("\n降水量统计:")
+        print(f"总降水量记录数: {precip_stats['total']}")
+        print(f"非零降水量记录数: {precip_stats['non_zero']}")
+        print(f"零降水量记录数: {precip_stats['zero']}")
         print("\n各气象要素的统计信息:")
         print(df[['temperature', 'dew_point', 'pressure', 'wind_speed', 'cloud_cover', 'precipitation']].describe())
 
@@ -395,7 +406,7 @@ class DataPreprocessor:
             result = chardet.detect(raw_data)
             encoding = result['encoding']
             confidence = result['confidence']
-            print(f"检测到文件 {file_path} 的编码为 {encoding}，置信度：{confidence:.2f}")
+            # print(f"检测到文件 {file_path} 的编码为 {encoding}，置信度：{confidence:.2f}")
             return encoding
 
     def process_population_data(self):

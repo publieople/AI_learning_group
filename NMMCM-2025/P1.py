@@ -4,8 +4,16 @@ from datetime import datetime
 from sklearn.linear_model import LinearRegression
 import matplotlib.pyplot as plt
 import matplotlib
+import os
 matplotlib.rcParams['font.sans-serif'] = ['SimHei']  # 用来正常显示中文标签
 matplotlib.rcParams['axes.unicode_minus'] = False  # 用来正常显示负号
+
+# 确保输出目录存在
+def ensure_dir_exists(dir_path):
+    """确保目录存在，如果不存在则创建"""
+    if not os.path.exists(dir_path):
+        os.makedirs(dir_path)
+        print(f"创建目录: {dir_path}")
 
 # 加载数据
 def load_data():
@@ -446,6 +454,15 @@ def main():
 
     # 可视化部分添加异常处理
     try:
+        # 创建保存图表的目录
+        output_dir = './P1'
+        ensure_dir_exists(output_dir)
+
+        # 保存结果数据到CSV
+        result_csv_path = f'{output_dir}/马拉松赛事推荐结果.csv'
+        event_recommendations.to_csv(result_csv_path, index=False, encoding='utf-8-sig')
+        print(f"结果数据已保存至: {result_csv_path}")
+
         # 可视化：不同城市的最佳月份分布
         plt.figure(figsize=(12, 6))
         best_month_counts = event_recommendations['best_month'].value_counts().sort_index()
@@ -454,8 +471,8 @@ def main():
             plt.title('各城市最适宜举办马拉松的月份分布')
             plt.xlabel('月份')
             plt.ylabel('城市数量')
-            plt.savefig('.\P1\马拉松最佳月份分布.png')
-            print("已生成月份分布图：.\P1\马拉松最佳月份分布.png")
+            plt.savefig(f'{output_dir}/马拉松最佳月份分布.png')
+            print(f"已生成月份分布图：{output_dir}/马拉松最佳月份分布.png")
         else:
             print("没有足够数据生成月份分布图")
 
@@ -468,8 +485,8 @@ def main():
             plt.xlabel('城市')
             plt.ylabel('综合评分')
             plt.tight_layout()
-            plt.savefig('.\P1\马拉松综合评分前20城市.png')
-            print("已生成城市评分图：.\P1\马拉松综合评分前20城市.png")
+            plt.savefig(f'{output_dir}/马拉松综合评分前20城市.png')
+            print(f"已生成城市评分图：{output_dir}/马拉松综合评分前20城市.png")
         else:
             print("可用城市数量不足，无法生成城市评分图")
     except Exception as e:

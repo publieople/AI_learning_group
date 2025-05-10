@@ -15,6 +15,7 @@ from rasterio.plot import show
 import warnings
 import argparse
 import chardet
+from data_cleaning import DataCleaner
 warnings.filterwarnings('ignore')
 
 class DataPreprocessor:
@@ -502,7 +503,7 @@ class DataPreprocessor:
 
     def run_all_preprocessing(self):
         """
-        运行所有预处理步骤
+        运行所有预处理步骤，并添加数据清洗环节
         """
         # 创建处理后的数据目录
         os.makedirs(self.output_dir, exist_ok=True)
@@ -528,6 +529,12 @@ class DataPreprocessor:
 
         print("所有数据预处理完成！")
 
+        # 创建数据清洗器并进行数据清洗
+        print("\n开始进行数据清洗...")
+        cleaner = DataCleaner(data_dir=self.output_dir)
+        cleaned_data = cleaner.clean_all_data()
+        print("数据清洗完成！")
+
         # 返回所有处理后的数据
         return {
             'meteorological': meteo_data,
@@ -535,7 +542,8 @@ class DataPreprocessor:
             'subway_traffic': subway_data,
             'population': population_data,
             'population_density': density_data,
-            'ultra_marathon': ultra_data
+            'ultra_marathon': ultra_data,
+            'cleaned_data': cleaned_data  # 添加清洗后的数据
         }
 
 

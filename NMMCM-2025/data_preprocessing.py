@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 
 import os
+from idna import encode
 import pandas as pd
 import numpy as np
 import glob
@@ -235,27 +236,28 @@ class DataPreprocessor:
 
             # 数据清洗和转换
             # 1. 处理日期格式
-            if '比赛日期' in df.columns:
-                df['比赛日期'] = pd.to_datetime(df['比赛日期'], errors='coerce')
+            if 'raceTime' in df.columns:
+                df['raceTime'] = pd.to_datetime(df['raceTime'], errors='coerce')
 
             # 2. 处理数值型数据
-            numeric_columns = ['报名人数', '完赛人数', '报名费']
+            numeric_columns = ['raceScale', 'lon', 'lat']
             for col in numeric_columns:
                 if col in df.columns:
-                    df[col] = pd.to_numeric(df[col], errors='coerce')
+                    if col == 'raceScale':
+                        # 处理raceScale列中的'人'字符
+                        df[col] = df[col].astype(str).str.replace('人', '', regex=False)
+                        df[col] = pd.to_numeric(df[col], errors='coerce')
+                    else:
+                        df[col] = pd.to_numeric(df[col], errors='coerce')
 
-            # 3. 计算完赛率
-            if '报名人数' in df.columns and '完赛人数' in df.columns:
-                df['完赛率'] = df['完赛人数'] / df['报名人数']
-
-            # 4. 提取年份和月份
-            if '比赛日期' in df.columns:
-                df['年份'] = df['比赛日期'].dt.year
-                df['月份'] = df['比赛日期'].dt.month
+            # 3. 提取年份和月份
+            if 'raceTime' in df.columns:
+                df['年份'] = df['raceTime'].dt.year.astype('Int64')
+                df['月份'] = df['raceTime'].dt.month.astype('Int64')
 
             # 保存处理后的数据
             output_file = os.path.join(self.output_dir, "附件12_marathon_history.csv")
-            df.to_csv(output_file, index=False)
+            df.to_csv(output_file, index=False, encoding='utf-8-sig')
             print(f"马拉松赛历数据处理完成，已保存到{output_file}")
 
             return df
@@ -584,12 +586,12 @@ class DataPreprocessor:
             # 保存处理后的数据（由于数据可能很大，这里只保存一个样本）
             sample_df = df.sample(n=min(10000, len(df)), random_state=42)
             output_file = os.path.join(self.output_dir, "附件11_ultra_marathon_sample.csv")
-            sample_df.to_csv(output_file, index=False)
+            sample_df.to_csv(output_file, index=False, encoding='utf-8-sig')
             print(f"超级马拉松数据处理完成，已保存样本到{output_file}")
 
             # 保存完整数据
             output_file_full = os.path.join(self.output_dir, "附件11_ultra_marathon_full.csv")
-            df.to_csv(output_file_full, index=False)
+            df.to_csv(output_file_full, index=False, encoding='utf-8-sig')
             print(f"超级马拉松完整数据已保存到{output_file_full}")
 
             return df
@@ -598,13 +600,13 @@ class DataPreprocessor:
             print(f"处理超级马拉松数据时出错: {e}")
             return None
 
-    def process_xian_route_data(self):
+    def process_xian_basic_data(self):
         """
-        处理西安市赛跑线路相关数据，包括地铁、住宿、餐饮、景点、道路、公交和地形数据
+        处理西安市基础数据（附件5中的住宿、餐饮、景点）
         """
-        print("开始处理西安市赛跑线路相关数据...")
+        print("开始处理西安市基础数据...")
 
-        # 1. 加载住宿设施数据（附件5）
+        # 1. 加载住宿设施数据
         hotel_file = os.path.join(self.base_path, "附件5：西安市基础数据", "西安市住宿服务数据.csv")
         try:
             hotel_df = pd.read_csv(hotel_file, encoding='utf-8')
@@ -619,7 +621,7 @@ class DataPreprocessor:
             print(f"加载住宿设施数据时出错: {e}")
             hotel_df = None
 
-        # 2. 加载餐饮设施数据（附件5）
+        # 2. 加载餐饮设施数据
         restaurant_file = os.path.join(self.base_path, "附件5：西安市基础数据", "西安市餐饮数据.csv")
         try:
             restaurant_df = pd.read_csv(restaurant_file, encoding='utf-8')
@@ -631,7 +633,7 @@ class DataPreprocessor:
             print(f"加载餐饮设施数据时出错: {e}")
             restaurant_df = None
 
-        # 3. 加载景点数据（附件5）
+        # 3. 加载景点数据
         attraction_file = os.path.join(self.base_path, "附件5：西安市基础数据", "西安市风景名胜数据.csv")
         try:
             attraction_df = pd.read_csv(attraction_file, encoding='utf-8')
@@ -642,6 +644,20 @@ class DataPreprocessor:
         except Exception as e:
             print(f"加载景点数据时出错: {e}")
             attraction_df = None
+
+        print("西安市基础数据处理完成！")
+
+        return {
+            'hotels': hotel_df,
+            'restaurants': restaurant_df,
+            'attractions': attraction_df
+        }
+
+    def process_shaanxi_terrain(self):
+        """
+        处理陕西省地形数据（附件6）
+        """
+        print("开始处理陕西省地形数据...")
 
         # 4. 加载地形数据（附件6）
         terrain_file = os.path.join(self.base_path, "附件6：陕西省12.5分辨率地形数据", "陕西WGS84.tif")
@@ -655,17 +671,40 @@ class DataPreprocessor:
             terrain_data = None
             meta = None
 
+        print("陕西省地形数据处理完成！")
+
+        return {
+            'terrain_data': terrain_data,
+            'meta': meta
+        }
+
+    def process_xian_road_connections(self):
+        """
+        处理西安市道路连接信息（附件7）
+        """
+        print("开始处理西安市道路连接信息...")
+
         # 5. 加载道路数据（附件7）
         road_file = os.path.join(self.base_path, "附件7：2025年西安市道路数据", "路线连接信息.csv")
         try:
-            road_df = pd.read_csv(road_file, encoding='utf-8')
+            road_df = pd.read_csv(road_file, encoding='gbk')
             print(f"道路连接信息加载成功，共 {len(road_df)} 条记录")
             # 保存为CSV便于后续使用
             road_output = os.path.join(self.output_dir, "附件7_xian_road_connections.csv")
-            road_df.to_csv(road_output, index=False)
+            road_df.to_csv(road_output, index=False, encoding='utf-8-sig')
         except Exception as e:
             print(f"加载道路连接信息时出错: {e}")
             road_df = None
+
+        print("西安市道路连接信息处理完成！")
+
+        return road_df
+
+    def process_xian_bus_stations(self):
+        """
+        处理西安市公交站点数据（附件8）
+        """
+        print("开始处理西安市公交站点数据...")
 
         # 6. 加载公交站点数据（附件8）
         bus_file = os.path.join(self.base_path, "附件8：西安_2024年公交站点和线路数据", "公交站点（含经纬度）.xlsx")
@@ -673,13 +712,23 @@ class DataPreprocessor:
             bus_df = pd.read_excel(bus_file)
             print(f"公交站点数据加载成功，共 {len(bus_df)} 条记录")
             # 重命名列以统一格式
-            bus_df.columns = ['station_name', 'latitude', 'longitude']
+            bus_df.columns = ['FID', 'name', 'line', 'name_st', '经度', '纬度']
             # 保存为CSV便于后续使用
             bus_output = os.path.join(self.output_dir, "附件8_xian_bus_stations.csv")
-            bus_df.to_csv(bus_output, index=False)
+            bus_df.to_csv(bus_output, index=False, encoding='utf-8-sig')
         except Exception as e:
             print(f"加载公交站点数据时出错: {e}")
             bus_df = None
+
+        print("西安市公交站点数据处理完成！")
+
+        return bus_df
+
+    def process_xian_subway_stations(self):
+        """
+        处理西安市地铁站点数据（附件9）
+        """
+        print("开始处理西安市地铁站点数据...")
 
         # 7. 加载地铁站点数据（附件9）
         subway_file = os.path.join(self.base_path, "附件9：西安_2024年地铁数据", "地铁站点（含经纬度）.xlsx")
@@ -687,26 +736,176 @@ class DataPreprocessor:
             subway_df = pd.read_excel(subway_file)
             print(f"地铁站点数据加载成功，共 {len(subway_df)} 条记录")
             # 重命名列以统一格式
-            subway_df.columns = ['station_name', 'latitude', 'longitude']
+            subway_df.columns = ['FID', 'name', '经度', '纬度']
             # 保存为CSV便于后续使用
             subway_output = os.path.join(self.output_dir, "附件9_xian_subway_stations.csv")
-            subway_df.to_csv(subway_output, index=False)
+            subway_df.to_csv(subway_output, index=False, encoding='utf-8-sig')
         except Exception as e:
             print(f"加载地铁站点数据时出错: {e}")
             subway_df = None
 
-        print("西安市赛跑线路相关数据处理完成！")
+        print("西安市地铁站点数据处理完成！")
 
-        return {
-            'subway': subway_df,
-            'bus': bus_df,
-            'hotels': hotel_df,
-            'restaurants': restaurant_df,
-            'attractions': attraction_df,
-            'roads': road_df,
-            'terrain': terrain_data,
-            'terrain_meta': meta
-        }
+        return subway_df
+
+    def run_single_attachment(self, attachment_num, **kwargs):
+        """
+        根据附件编号运行单个附件的预处理
+
+        参数:
+        attachment_num: 要处理的附件编号
+        **kwargs: 附加参数
+
+        返回:
+        处理结果
+        """
+        try:
+            if attachment_num == 1:
+                years = kwargs.get('years', None)
+                return self.run_attachment_1(years=years)
+            elif attachment_num == 2:
+                return self.run_attachment_2()
+            elif attachment_num == 3:
+                return self.run_attachment_3()
+            elif attachment_num == 4:
+                year = kwargs.get('year', 2020)
+                return self.run_attachment_4(year=year)
+            elif attachment_num == 5:
+                return self.run_attachment_5()
+            elif attachment_num == 6:
+                return self.run_attachment_6()
+            elif attachment_num == 7:
+                return self.run_attachment_7()
+            elif attachment_num == 8:
+                return self.run_attachment_8()
+            elif attachment_num == 9:
+                return self.run_attachment_9()
+            elif attachment_num == 11:
+                return self.run_attachment_11()
+            elif attachment_num == 12:
+                return self.run_attachment_12()
+            else:
+                raise ValueError(f"不支持的附件编号: {attachment_num}")
+        except Exception as e:
+            print(f"处理附件{attachment_num}时发生错误: {str(e)}")
+            return None
+
+    def run_attachment_1(self, years=None):
+        """
+        单独处理附件1：中国气象数据
+
+        参数:
+        years: 需要处理的年份列表，如果为None则处理默认年份
+
+        返回:
+        处理后的气象数据DataFrame
+        """
+        print("\n--- 开始处理附件1：中国气象数据 ---")
+        if years is None:
+            years = ['2020', '2021', '2022', '2023']  # 默认年份
+        return self.process_meteorological_data(years=years)
+
+    def run_attachment_2(self):
+        """
+        单独处理附件2：轨道交通客运量数据
+
+        返回:
+        处理后的轨道交通数据DataFrame
+        """
+        print("\n--- 开始处理附件2：轨道交通客运量数据 ---")
+        return self.process_subway_data()
+
+    def run_attachment_3(self):
+        """
+        单独处理附件3：人口普查数据
+
+        返回:
+        处理后的人口普查数据DataFrame
+        """
+        print("\n--- 开始处理附件3：人口普查数据 ---")
+        return self.process_population_data()
+
+    def run_attachment_4(self, year=2020):
+        """
+        单独处理附件4：人口密度数据
+
+        参数:
+        year: 要处理的年份，默认为2020
+
+        返回:
+        处理后的人口密度数据
+        """
+        print(f"\n--- 开始处理附件4：人口密度数据 ({year}年) ---")
+        return self.process_population_density(year=year)
+    def run_attachment_5(self):
+        """
+        单独处理附件5：西安市住宿、餐饮、景点数据
+
+        返回:
+        处理后的西安基础数据字典
+        """
+        print("\n--- 开始处理附件5：西安市基础数据 ---")
+        return self.process_xian_basic_data()
+
+    def run_attachment_6(self):
+        """
+        单独处理附件6：陕西省地形数据
+
+        返回:
+        处理后的地形数据
+        """
+        print("\n--- 开始处理附件6：陕西省地形数据 ---")
+        return self.process_shaanxi_terrain()
+
+    def run_attachment_7(self):
+        """
+        单独处理附件7：西安市道路连接信息
+
+        返回:
+        处理后的道路连接数据DataFrame
+        """
+        print("\n--- 开始处理附件7：西安市道路连接信息 ---")
+        return self.process_xian_road_connections()
+
+    def run_attachment_8(self):
+        """
+        单独处理附件8：西安市公交站点数据
+
+        返回:
+        处理后的公交站点数据DataFrame
+        """
+        print("\n--- 开始处理附件8：西安市公交站点数据 ---")
+        return self.process_xian_bus_stations()
+
+    def run_attachment_9(self):
+        """
+        单独处理附件9：西安市地铁站点数据
+
+        返回:
+        处理后的地铁站点数据DataFrame
+        """
+        print("\n--- 开始处理附件9：西安市地铁站点数据 ---")
+        return self.process_xian_subway_stations()
+
+    def run_attachment_11(self):
+        """
+        单独处理附件11：超级马拉松数据
+
+        返回:
+        处理后的超级马拉松数据DataFrame
+        """
+        print("\n--- 开始处理附件11：超级马拉松数据 ---")
+        return self.process_ultra_marathon_data()
+
+    def run_attachment_12(self):
+        """
+        单独处理附件12：马拉松赛历数据
+
+        返回:
+        处理后的马拉松赛历数据DataFrame
+        """
+        print("\n--- 开始处理附件12：马拉松赛历数据 ---")
+        return self.process_marathon_history()
 
     def run_all_preprocessing(self):
         """
@@ -715,26 +914,55 @@ class DataPreprocessor:
         # 创建处理后的数据目录
         os.makedirs(self.output_dir, exist_ok=True)
 
-        # 处理气象数据（选择近几年的数据）
+        # 分别处理每个附件
+        print("\n=== 开始批量处理所有附件 ===")
+
+        # 处理附件1：气象数据
+        print("\n--- 处理附件1：中国气象数据 ---")
         recent_years = ['2020', '2021', '2022', '2023']
-        meteo_data = self.process_meteorological_data(years=recent_years)
+        meteo_data = self.run_attachment_1(years=recent_years)
 
-        # 处理轨道交通客运量数据
-        subway_data = self.process_subway_data()
+        # 处理附件2：轨道交通客运量数据
+        print("\n--- 处理附件2：轨道交通客运量数据 ---")
+        subway_data = self.run_attachment_2()
 
-        # 处理人口普查数据
-        population_data = self.process_population_data()
+        # 处理附件3：人口普查数据
+        print("\n--- 处理附件3：人口普查数据 ---")
+        population_data = self.run_attachment_3()
 
-        # 处理人口密度数据（2020年）
-        density_data, meta = self.process_population_density(year=2020)
+        # 处理附件4：人口密度数据（2020年）
+        print("\n--- 处理附件4：人口密度数据 (2020年) ---")
+        density_data, meta = self.run_attachment_4(year=2020)
 
-        # 处理超级马拉松数据
-        ultra_data = self.process_ultra_marathon_data()
+        # 处理附件5：西安市基础数据
+        print("\n--- 处理附件5：西安市基础数据 ---")
+        xian_basic_data = self.run_attachment_5()
 
-        # 处理马拉松赛历数据
-        marathon_data = self.process_marathon_history()
+        # 处理附件6：陕西省地形数据
+        print("\n--- 处理附件6：陕西省地形数据 ---")
+        terrain_data = self.run_attachment_6()
 
-        print("所有数据预处理完成！")
+        # 处理附件7：西安市道路连接信息
+        print("\n--- 处理附件7：西安市道路连接信息 ---")
+        road_data = self.run_attachment_7()
+
+        # 处理附件8：西安市公交站点数据
+        print("\n--- 处理附件8：西安市公交站点数据 ---")
+        bus_data = self.run_attachment_8()
+
+        # 处理附件9：西安市地铁站点数据
+        print("\n--- 处理附件9：西安市地铁站点数据 ---")
+        subway_station_data = self.run_attachment_9()
+
+        # 处理附件11：超级马拉松数据
+        print("\n--- 处理附件11：超级马拉松数据 ---")
+        ultra_data = self.run_attachment_11()
+
+        # 处理附件12：马拉松赛历数据
+        print("\n--- 处理附件12：马拉松赛历数据 ---")
+        marathon_data = self.run_attachment_12()
+
+        print("\n=== 所有数据预处理完成 ===")
 
         # 创建数据清洗器并进行数据清洗
         print("\n开始进行数据清洗...")
@@ -749,8 +977,13 @@ class DataPreprocessor:
             'subway_traffic': subway_data,
             'population': population_data,
             'population_density': density_data,
+            'xian_basic': xian_basic_data,
+            'terrain': terrain_data,
+            'road_connections': road_data,
+            'bus_stations': bus_data,
+            'subway_stations': subway_station_data,
             'ultra_marathon': ultra_data,
-            'cleaned_data': cleaned_data  # 添加清洗后的数据
+            'cleaned_data': cleaned_data
         }
 
 
@@ -759,10 +992,12 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='数据预处理工具')
     parser.add_argument('--base_path', type=str, default="附件",
                       help='附件数据的基础路径')
-    parser.add_argument('--attachments', type=str, nargs='+',
-                      help='要处理的附件编号列表，例如：1 2 3')
+    parser.add_argument('--attachment', type=int, default=None,
+                      help='要处理的附件编号（1-4, 5, 6, 7, 8, 9, 11, 12），不指定则处理所有附件')
     parser.add_argument('--years', type=str, nargs='+',
                       help='要处理的年份列表（仅用于附件1），例如：2020 2021 2022')
+    parser.add_argument('--year', type=int, default=2020,
+                      help='要处理的年份（仅用于附件4），例如：2020')
 
     args = parser.parse_args()
 
@@ -770,28 +1005,15 @@ if __name__ == "__main__":
     preprocessor = DataPreprocessor(base_path=args.base_path)
 
     # 如果没有指定附件，则处理所有附件
-    if not args.attachments:
+    if args.attachment is None:
         print("未指定附件编号，将处理所有附件...")
         processed_data = preprocessor.run_all_preprocessing()
     else:
-        processed_data = {}
-        for attachment in args.attachments:
-            print(f"\n开始处理附件{attachment}...")
-            if attachment == "1":
-                processed_data['meteorological'] = preprocessor.process_meteorological_data(years=args.years)
-            elif attachment == "2":
-                processed_data['subway_traffic'] = preprocessor.process_subway_data()
-            elif attachment == "3":
-                processed_data['population'] = preprocessor.process_population_data()
-            elif attachment == "4":
-                processed_data['population_density'], _ = preprocessor.process_population_density()
-            elif attachment == "5" or attachment == "6" or attachment == "7" or attachment == "8" or attachment == "9":
-                processed_data['xian_route'] = preprocessor.process_xian_route_data()
-            elif attachment == "11":
-                processed_data['ultra_marathon'] = preprocessor.process_ultra_marathon_data()
-            elif attachment == "12":
-                processed_data['marathon_history'] = preprocessor.process_marathon_history()
-            else:
-                print(f"警告：未知的附件编号 {attachment}")
+        print(f"\n开始处理附件{args.attachment}...")
+        processed_data = preprocessor.run_single_attachment(
+            attachment_num=args.attachment,
+            years=args.years,
+            year=args.year
+        )
 
     print("\n数据预处理完成！")

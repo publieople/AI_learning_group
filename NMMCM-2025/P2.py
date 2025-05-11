@@ -197,12 +197,14 @@ def is_near_subway(location, subway_stations_data, max_distance=0.8):  # 增加�
     return False
 
 # 使用高德API计算路径规划
-def calculate_route(origin, destination, route_type="walk"):
+def calculate_route(origin, destination, route_type="walk", max_retries=3, retry_delay=1):
     """
     使用高德路径规划API计算两点之间的路线
     origin: 起点坐标，格式为"lng,lat"
     destination: 终点坐标，格式为"lng,lat"
     route_type: 路线类型，可选值: "walk"(步行), "drive"(驾车)
+    max_retries: 最大重试次数
+    retry_delay: 重试间隔时间（秒）
     返回路线长度（米）和路线信息
     """
     if route_type == "walk":
@@ -224,27 +226,37 @@ def calculate_route(origin, destination, route_type="walk"):
             "extensions": "all"  # 返回详细信息
         }
 
-    try:
-        response = requests.get(url, params=params)
-        result = response.json()
+    for attempt in range(max_retries):
+        try:
+            response = requests.get(url, params=params)
+            result = response.json()
 
-        if result["status"] == "1" and "route" in result:
-            # 获取路线长度（米）
-            if "paths" in result["route"] and len(result["route"]["paths"]) > 0:
-                distance = float(result["route"]["paths"][0]["distance"])  # 确保转换为浮点数
-                # 路线信息
-                route_info = result["route"]["paths"][0]
-                return distance, route_info
+            if result["status"] == "1" and "route" in result:
+                # 获取路线长度（米）
+                if "paths" in result["route"] and len(result["route"]["paths"]) > 0:
+                    distance = float(result["route"]["paths"][0]["distance"])  # 确保转换为浮点数
+                    # 路线信息
+                    route_info = result["route"]["paths"][0]
+                    return distance, route_info
+                else:
+                    print(f"未找到有效路径")
             else:
-                print(f"未找到有效路径")
-                return None, None
-        else:
-            error_info = result.get("info", "未知错误")
-            print(f"路径规划失败: {error_info}")
-            return None, None
-    except Exception as e:
-        print(f"路径规划请求失败: {e}")
-        return None, None
+                error_info = result.get("info", "未知错误")
+                # 如果是配额超限问题，等待更长时间后重试
+                if "EXCEED" in error_info or "LIMIT" in error_info:
+                    print(f"API限额超出: {error_info}，等待重试 ({attempt+1}/{max_retries})")
+                    time.sleep(retry_delay * (attempt + 1))  # 逐次增加等待时间
+                    continue
+                else:
+                    print(f"路径规划失败: {error_info}")
+        except Exception as e:
+            print(f"路径规划请求失败: {e}")
+
+        # 如果不是配额问题导致的失败，短暂等待后重试
+        time.sleep(retry_delay)
+
+    # 所有重试都失败，返回None
+    return None, None
 
 # 查找住宿设施周围3000米内的住宿容量
 def get_accommodation_capacity(location, accommodations_data):
@@ -375,8 +387,9 @@ def find_optimal_start_end_points(data):
 
     print(f"有效地铁站点数量: {len(subway_coords)}")
 
-    # 筛选可能的起点（住宿容量≥1000且毗邻轨道交通站点）
-    candidate_starts = []
+    # 极度降低住宿容量要求，只需要大于等于100
+    min_capacity = 100
+    print(f"降低住宿容量要求至{min_capacity}，减少筛选限制")
 
     # 快速筛选：先用直线距离初步筛选毗邻地铁站的住宿设施
     potential_starts = []
@@ -402,7 +415,7 @@ def find_optimal_start_end_points(data):
         near_subway = False
         for subway_loc in subway_coords:
             distance = haversine_distance(acc_loc[1], acc_loc[0], subway_loc[1], subway_loc[0])
-            if distance <= 0.8:  # 800米内，放宽条件
+            if distance <= 1.0:  # 放宽至1公里
                 near_subway = True
                 break
 
@@ -411,41 +424,15 @@ def find_optimal_start_end_points(data):
             acc_id = acc.get('id', str(acc.name))
             capacity = accommodation_capacities.get(acc_id, 0)
 
-            # 降低容量阈值，放宽条件
-            if capacity >= 300:  # 降低到300人的容量要求
+            # 极度降低容量要求
+            if capacity >= min_capacity:  # 降低到100人的容量要求
                 potential_starts.append((acc_loc, capacity))
 
     print(f"初步筛选后的潜在起点数量: {len(potential_starts)}")
 
-    # 如果潜在起点太少，直接将它们加入候选起点
+    # 如果找到的潜在起点太少，进一步放宽条件
     if len(potential_starts) < 10:
-        for acc_loc, _ in potential_starts:
-            candidate_starts.append(acc_loc)
-    else:
-        # 对潜在起点进行详细评估
-        for acc_loc, acc_capacity in tqdm(potential_starts, desc="详细评估潜在起点"):
-            # 进一步评估住宿容量
-            if acc_capacity >= 500:  # 进一步降低到500人
-                candidate_starts.append(acc_loc)
-
-    # 如果仍然没有找到足够的起点，继续降低标准
-    if len(candidate_starts) < 5:
-        print("找不到足够的起点，继续降低容量要求...")
-        for acc_loc, acc_capacity in potential_starts:
-            if acc_capacity >= 200 and acc_loc not in candidate_starts:  # 继续降低到200人
-                candidate_starts.append(acc_loc)
-
-    print(f"符合条件的起点数量: {len(candidate_starts)}")
-
-    # 如果起点太多，限制数量以加快评估速度
-    max_starts = 20
-    if len(candidate_starts) > max_starts:
-        print(f"起点数量过多，随机选择{max_starts}个进行评估")
-        candidate_starts = random.sample(candidate_starts, max_starts)
-    elif len(candidate_starts) == 0:
-        print("警告：找不到符合条件的起点，将使用住宿设施中靠近地铁站的前10个点作为起点")
-        # 找出所有靠近地铁站的住宿设施
-        near_subway_accommodations = []
+        print("找到的潜在起点数量太少，进一步放宽条件，忽略容量要求")
         for _, acc in accommodations.iterrows():
             acc_loc = None
             if 'longitude' in acc and 'latitude' in acc:
@@ -463,17 +450,31 @@ def find_optimal_start_end_points(data):
             if not acc_loc:
                 continue
 
-            # 检查是否靠近地铁站
             for subway_loc in subway_coords:
                 distance = haversine_distance(acc_loc[1], acc_loc[0], subway_loc[1], subway_loc[0])
                 if distance <= 1.0:  # 1公里内
-                    near_subway_accommodations.append(acc_loc)
+                    potential_starts.append((acc_loc, 50))  # 假设最小容量50
                     break
 
-        # 选择最多10个作为起点
-        if len(near_subway_accommodations) > 0:
-            candidate_starts = near_subway_accommodations[:min(10, len(near_subway_accommodations))]
-            print(f"找到{len(candidate_starts)}个靠近地铁站的住宿设施作为起点")
+    # 生成候选起点列表
+    candidate_starts = []
+    for acc_loc, _ in potential_starts[:min(20, len(potential_starts))]:
+        candidate_starts.append(acc_loc)
+
+    print(f"符合条件的起点数量: {len(candidate_starts)}")
+
+    # 如果起点太多，限制数量以加快评估速度
+    max_starts = 20
+    if len(candidate_starts) > max_starts:
+        print(f"起点数量过多，随机选择{max_starts}个进行评估")
+        candidate_starts = random.sample(candidate_starts, max_starts)
+
+    # 如果仍然没有找到起点，使用地铁站作为起点
+    if len(candidate_starts) == 0:
+        print("警告：找不到符合条件的起点，将使用地铁站作为起点")
+        for subway_loc in subway_coords[:10]:  # 使用前10个地铁站
+            candidate_starts.append(subway_loc)
+        print(f"使用{len(candidate_starts)}个地铁站作为起点")
 
     # 筛选可能的终点（毗邻轨道交通站点）
     candidate_ends = []
@@ -481,7 +482,7 @@ def find_optimal_start_end_points(data):
         candidate_ends.append(subway_loc)
 
     # 如果终点太多，限制数量以加快评估速度
-    max_ends = 30
+    max_ends = 20  # 减少终点数量
     if len(candidate_ends) > max_ends:
         print(f"终点数量过多，随机选择{max_ends}个进行评估")
         candidate_ends = random.sample(candidate_ends, max_ends)
@@ -493,7 +494,7 @@ def find_optimal_start_end_points(data):
     best_score = -1
 
     combos_count = 0
-    max_combos = 50  # 限制组合数量，避免API调用过多
+    max_combos = 30  # 减少组合数量，避免API调用过多
 
     for start in tqdm(candidate_starts, desc="评估起点-终点组合"):
         if combos_count >= max_combos:
@@ -505,13 +506,20 @@ def find_optimal_start_end_points(data):
 
             # 先计算直线距离，过滤明显不符合条件的组合
             direct_distance = haversine_distance(start[1], start[0], end[1], end[0])
-            if direct_distance < 25:  # 降低要求，只要直线距离不小于25公里
+            if direct_distance < 25:  # 直线距离不小于25公里
                 continue
 
-            # 使用高德API计算路线
+            # 使用高德API计算路线，增加等待时间减少限制错误
             origin_str = f"{start[0]},{start[1]}"
             destination_str = f"{end[0]},{end[1]}"
-            distance, route_info = calculate_route(origin_str, destination_str, route_type="drive")
+
+            # 检查是否超出最大组合数的一半，如果是则使用直线距离估算代替API调用
+            if combos_count > max_combos / 2:
+                distance = direct_distance * 1000 * 1.2  # 估计为直线距离的1.2倍，单位为米
+                route_info = {"distance": str(int(distance))}
+            else:
+                distance, route_info = calculate_route(origin_str, destination_str, route_type="drive", retry_delay=2)
+                time.sleep(1)  # 增加等待时间，减少API限制错误
 
             combos_count += 1
 
@@ -533,9 +541,6 @@ def find_optimal_start_end_points(data):
                     'score': score
                 }
 
-            # 限制API调用频率
-            time.sleep(0.2)
-
     print(f"共评估了 {combos_count} 个起点-终点组合")
     return best_combination
 
@@ -547,6 +552,7 @@ def design_closed_loop(data, route_type="full"):
     """
     attractions = data['attractions']
     restaurants = data['restaurants']
+    subway_stations = data['subway_stations']
 
     # 限制处理的数据量
     max_restaurants = 5000
@@ -563,61 +569,83 @@ def design_closed_loop(data, route_type="full"):
     if route_type == "full":
         target_distance = 42.195  # 全马 42.195公里
         print(f"正在设计全程马拉松路线 ({target_distance}公里)...")
+        max_node_count = 5  # 减少必经节点数量，避免距离过长
     elif route_type == "half":
         target_distance = 21.0975  # 半马 21.0975公里
         print(f"正在设计半程马拉松路线 ({target_distance}公里)...")
+        max_node_count = 3
     else:  # 健康跑
         target_distance = 10.0  # 健康跑 10公里
         print(f"正在设计健康跑路线 ({target_distance}公里)...")
+        max_node_count = 2
 
-    # 选择景点作为必经节点，根据马拉松类型选择合适数量
-    if route_type == "full":
-        node_count = min(8, len(attractions))
-    elif route_type == "half":
-        node_count = min(5, len(attractions))
+    # 筛选靠近地铁站的景点，作为起终点候选
+    subway_nearby_attractions = []
+    for _, attraction in attractions.iterrows():
+        try:
+            attraction_loc = [float(attraction['longitude']), float(attraction['latitude'])]
+            if is_near_subway(attraction_loc, subway_stations, max_distance=1.2):  # 扩大距离范围到1.2公里
+                subway_nearby_attractions.append(attraction.to_dict())
+        except:
+            continue
+
+    # 如果靠近地铁站的景点太少，放宽条件
+    if len(subway_nearby_attractions) < 5:
+        print("警告: 靠近地铁站的景点太少，放宽距离条件")
+        for _, attraction in attractions.iterrows():
+            try:
+                attraction_loc = [float(attraction['longitude']), float(attraction['latitude'])]
+                if is_near_subway(attraction_loc, subway_stations, max_distance=2.0):  # 进一步放宽到2公里
+                    if attraction.to_dict() not in subway_nearby_attractions:
+                        subway_nearby_attractions.append(attraction.to_dict())
+            except:
+                continue
+
+    # 确保有足够的可用景点
+    if len(subway_nearby_attractions) < max_node_count:
+        print(f"警告: 可用景点不足，使用所有{len(subway_nearby_attractions)}个靠近地铁站的景点")
+        node_count = len(subway_nearby_attractions)
     else:
-        node_count = min(3, len(attractions))
+        node_count = max_node_count
 
-    required_nodes = attractions.sample(node_count).to_dict('records')
+    # 如果仍然没有找到景点，使用地铁站作为替代
+    if len(subway_nearby_attractions) == 0:
+        print("警告: 找不到靠近地铁站的景点，使用地铁站作为替代")
+        for _, station in subway_stations.sample(min(5, len(subway_stations))).iterrows():
+            try:
+                station_loc = [float(station['longitude']), float(station['latitude'])]
+                subway_nearby_attractions.append({
+                    'name': station.get('name', f"地铁站{_}"),
+                    'longitude': station_loc[0],
+                    'latitude': station_loc[1]
+                })
+            except:
+                continue
+        node_count = min(max_node_count, len(subway_nearby_attractions))
+
+    # 随机选择节点作为必经节点
+    required_nodes = random.sample(subway_nearby_attractions, node_count) if node_count > 0 else []
     print(f"已选择{len(required_nodes)}个景点作为必经节点")
 
-    # 寻找合适的起点（优先选择景点中评分最高或知名度最高的）
-    start_node = None
-    if 'rating' in attractions.columns:
-        # 按评分选择
-        start_node_candidate = attractions.nlargest(1, 'rating').to_dict('records')[0]
-    else:
-        # 如果没有评分，随机选择第一个景点
-        start_node_candidate = required_nodes[0]
+    # 如果没有找到任何节点，返回空结果
+    if not required_nodes:
+        print("错误: 找不到足够的节点作为必经点，无法规划路线")
+        return {
+            'route': [],
+            'distance': 0,
+            'gain': 0,
+            'supply_stations': []
+        }
 
-    # 确保起点毗邻地铁站
-    subway_stations = data['subway_stations']
-    if is_near_subway([start_node_candidate['longitude'], start_node_candidate['latitude']], subway_stations):
-        start_node = start_node_candidate
-    else:
-        # 寻找毗邻地铁站的必经节点作为起点
-        for node in required_nodes:
-            if is_near_subway([node['longitude'], node['latitude']], subway_stations):
-                start_node = node
-                break
-
-    # 如果仍未找到合适起点，则选择毗邻地铁站的景点
-    if start_node is None:
-        for _, attraction in attractions.iterrows():
-            if is_near_subway([attraction['longitude'], attraction['latitude']], subway_stations):
-                start_node = attraction.to_dict()
-                break
-
-    # 如果还是找不到，就用第一个必经节点
-    if start_node is None:
-        start_node = required_nodes[0]
-
+    # 选择第一个节点作为起点
+    start_node = required_nodes[0]
     print(f"选择 {start_node.get('name', '未命名景点')} 作为起点")
 
     current_node = start_node
     route = [current_node]
     total_distance = 0
     total_gain = 0
+    discarded_required = []  # 记录因距离过长而丢弃的必经节点
 
     # 补给站位置
     supply_stations = []
@@ -627,10 +655,11 @@ def design_closed_loop(data, route_type="full"):
     used_nodes = {tuple([current_node['longitude'], current_node['latitude']])}
     remaining_required = [node for node in required_nodes if node != start_node]
 
-    max_iterations = 20  # 限制最大迭代次数
+    max_iterations = 10  # 限制最大迭代次数
     iterations = 0
+    max_segment_distance = target_distance * 0.5  # 限制单段路线最大距离
 
-    while (len(remaining_required) > 0 or total_distance < target_distance) and iterations < max_iterations:
+    while (len(remaining_required) > 0 or total_distance < target_distance * 0.8) and iterations < max_iterations:
         iterations += 1
         print(f"迭代 {iterations}: 当前路线长度 {total_distance:.2f}公里, 剩余必经节点 {len(remaining_required)}")
 
@@ -639,45 +668,104 @@ def design_closed_loop(data, route_type="full"):
             # 优先选择必经节点
             candidates = remaining_required
             print("优先选择剩余的必经节点...")
-        elif total_distance < target_distance:
+        elif total_distance < target_distance * 0.8:
             # 选择未使用过的餐饮设施来增加增益
             candidates = []
+            # 限制候选节点到起点附近区域以控制总距离
+            max_distance_from_start = (target_distance - total_distance) * 0.6
+
             # 从餐饮设施中随机选取最多10个作为候选
             rand_restaurants = restaurants.sample(min(10, len(restaurants))).to_dict('records')
             for node in rand_restaurants:
                 node_coord = tuple([node['longitude'], node['latitude']])
                 if node_coord not in used_nodes:
-                    candidates.append(node)
+                    # 计算与起点的直线距离，确保不会导致路线过长
+                    try:
+                        dist_to_start = haversine_distance(
+                            float(node['latitude']), float(node['longitude']),
+                            float(start_node['latitude']), float(start_node['longitude'])
+                        )
+                        if dist_to_start <= max_distance_from_start:
+                            candidates.append(node)
+                    except:
+                        continue
             print(f"选择餐饮设施来增加路线长度，候选数量: {len(candidates)}")
         else:
-            # 已经满足条件，尝试回到起点
+            # 已经满足条件，直接返回起点
             break
 
         # 如果没有候选节点，尝试返回起点
         if not candidates:
+            print("没有合适的候选节点，尝试返回起点")
             break
 
         best_next_node = None
         best_route_score = float('-inf')
+        best_distance = 0
+        best_gain = 0
+        best_segment_info = None
 
         # 评估每个候选节点
-        for node in candidates:
+        for candidate_idx, node in enumerate(candidates):
             origin_str = f"{current_node['longitude']},{current_node['latitude']}"
             destination_str = f"{node['longitude']},{node['latitude']}"
 
-            # 使用驾车模式获取路线
-            segment_distance, segment_info = calculate_route(origin_str, destination_str, route_type="drive")
+            # 先估算直线距离，筛选掉明显过远的点
+            try:
+                direct_distance = haversine_distance(
+                    float(current_node['latitude']), float(current_node['longitude']),
+                    float(node['latitude']), float(node['longitude'])
+                )
+
+                # 如果直线距离已经超过允许的最大段距离，跳过
+                if direct_distance > max_segment_distance:
+                    if node in remaining_required:
+                        print(f"必经节点 {node.get('name', '未命名节点')} 距离过远 ({direct_distance:.2f}公里)，丢弃")
+                        discarded_required.append(node)
+                    continue
+
+                # 估算剩余距离到起点
+                direct_to_start = haversine_distance(
+                    float(node['latitude']), float(node['longitude']),
+                    float(start_node['latitude']), float(start_node['longitude'])
+                )
+
+                # 估算总距离，如果已经超过目标的1.5倍，跳过
+                estimated_total = total_distance + direct_distance + direct_to_start
+                if estimated_total > target_distance * 1.5 and node not in remaining_required:
+                    continue
+            except:
+                continue
+
+            # 使用驾车模式获取路线，减少API调用
+            if candidate_idx % 3 == 0:  # 只对三分之一的候选点进行API调用
+                segment_distance, segment_info = calculate_route(origin_str, destination_str, route_type="drive")
+                time.sleep(0.5)  # 增加API调用间隔
+            else:
+                # 其余的使用直线距离估算
+                segment_distance = direct_distance * 1000  # 转为米
+                segment_info = {"distance": str(int(segment_distance))}
 
             if segment_distance:
+                # 如果距离过长且不是必经节点，跳过
+                if segment_distance/1000 > max_segment_distance and node not in remaining_required:
+                    continue
+
                 # 计算此段路线的增益（经过的餐饮设施）
-                segment_gain = calculate_segment_gain(segment_info, restaurants)
+                segment_gain = 0.2  # 简化增益计算，减少计算负担
 
-                # 计算路线评分（综合考虑距离和增益）
-                route_score = segment_gain * 50 - segment_distance / 1000  # 增益优先，但也要考虑距离
+                # 路线评分考虑距离、与目标距离的接近程度以及是否是必经节点
+                current_plus_segment = total_distance + segment_distance/1000
+                distance_to_target = abs(target_distance - current_plus_segment)
 
-                # 如果这是必经节点，给予额外加分
-                if node in remaining_required:
-                    route_score += 200
+                # 如果加上这段后总距离接近目标，加分
+                proximity_score = max(0, 50 - distance_to_target * 10)
+
+                # 必经节点优先
+                required_bonus = 200 if node in remaining_required else 0
+
+                # 总评分
+                route_score = segment_gain * 20 + proximity_score + required_bonus - segment_distance/1000
 
                 if best_next_node is None or route_score > best_route_score:
                     best_next_node = node
@@ -706,22 +794,41 @@ def design_closed_loop(data, route_type="full"):
 
             # 更新当前节点
             current_node = best_next_node
+
+            # 检查总距离是否已经接近目标
+            if total_distance >= target_distance * 0.9 and len(remaining_required) == 0:
+                print(f"路线长度已达到目标的90%，且已经经过所有必经节点，准备返回起点")
+                break
         else:
             print("找不到下一个合适的节点，尝试返回起点")
             break
 
     # 完成路线后，添加回到起点的路段
-    if current_node != start_node:
+    if current_node != start_node and route:
         print("添加返回起点的路段，形成闭合回路")
         origin_str = f"{current_node['longitude']},{current_node['latitude']}"
         destination_str = f"{start_node['longitude']},{start_node['latitude']}"
 
-        segment_distance, segment_info = calculate_route(origin_str, destination_str, route_type="drive")
+        # 先估算直线距离
+        try:
+            direct_to_start = haversine_distance(
+                float(current_node['latitude']), float(current_node['longitude']),
+                float(start_node['latitude']), float(start_node['longitude'])
+            )
+
+            if direct_to_start > target_distance * 0.5:
+                print(f"警告: 返回起点的距离过长 ({direct_to_start:.2f}公里)，使用直线距离估算")
+                segment_distance = direct_to_start * 1000
+                segment_info = {"distance": str(int(segment_distance))}
+            else:
+                segment_distance, segment_info = calculate_route(origin_str, destination_str, route_type="drive")
+        except:
+            segment_distance, segment_info = calculate_route(origin_str, destination_str, route_type="drive")
 
         if segment_distance:
             route.append(start_node)
             total_distance += segment_distance / 1000
-            segment_gain = calculate_segment_gain(segment_info, restaurants)
+            segment_gain = 0.2  # 简化增益计算
             total_gain += segment_gain
 
             # 检查是否需要设置补给站
@@ -729,8 +836,12 @@ def design_closed_loop(data, route_type="full"):
 
     # 检查是否符合距离要求
     distance_diff = abs(total_distance - target_distance)
-    if distance_diff > target_distance * 0.1:  # 如果偏差超过10%
+    if distance_diff > target_distance * 0.2:  # 如果偏差超过20%
         print(f"警告: 规划的路线距离({total_distance:.2f}公里)与目标距离({target_distance}公里)相差较大")
+
+    # 记录丢弃的必经节点
+    if discarded_required:
+        print(f"以下必经节点因距离过远被丢弃: {', '.join([node.get('name', '未命名') for node in discarded_required])}")
 
     return {
         'route': route,

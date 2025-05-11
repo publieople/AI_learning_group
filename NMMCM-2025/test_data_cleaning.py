@@ -48,7 +48,7 @@ def test_meteorological_cleaning(cleaner):
     print(f"减少缺失值: {raw_missing - cleaned_missing}")
 
     # 对比异常值
-    for col in ['temperature', 'wind_speed', 'precipitation']:
+    for col in ['temperature', 'wind_speed', 'precipitation_1h', 'precipitation_6h']:
         if col in raw_data.columns and col in cleaned_data.columns:
             # 原始数据的异常值
             q1_raw = raw_data[col].quantile(0.25)
@@ -73,7 +73,7 @@ def test_meteorological_cleaning(cleaner):
     # 绘制清洗前后对比图
     try:
         plt.figure(figsize=(15, 10))
-        cols = ['temperature', 'wind_speed', 'precipitation', 'pressure']
+        cols = ['temperature', 'wind_speed', 'precipitation_1h', 'precipitation_6h', 'pressure']
         for i, col in enumerate(cols, 1):
             ax = plt.subplot(2, 2, i)
             auto_histplot(ax, raw_data, cleaned_data, col)
@@ -101,7 +101,7 @@ def auto_histplot(ax, raw, clean, col):
     elif col == 'cloud_cover':
         bins = np.arange(-0.5, 9.5, 1)
         xlim = (0, 8)
-    elif col == 'precipitation':
+    elif 'precipitation' in col:
         bins = np.linspace(0, 20, 41)
         xlim = (0, 20)
     else:

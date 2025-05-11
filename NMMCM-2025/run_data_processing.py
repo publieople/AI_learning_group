@@ -60,18 +60,6 @@ def run_preprocessing():
     # 运行预处理
     processed_data = preprocessor.run_all_preprocessing()
 
-    # 新增：处理西安市赛跑线路数据
-    xian_route_data = preprocessor.process_xian_route_data()
-    if xian_route_data:
-        processed_data.update({
-            'xian_subway': xian_route_data.get('subway'),
-            'xian_hotels': xian_route_data.get('hotels'),
-            'xian_restaurants': xian_route_data.get('restaurants'),
-            'xian_attractions': xian_route_data.get('attractions'),
-            'xian_roads': xian_route_data.get('roads'),
-            'terrain': xian_route_data.get('terrain')
-        })
-
     print("数据预处理完成")
 
     # 打印预处理后的数据统计信息

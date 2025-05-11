@@ -103,12 +103,14 @@ class DataCleaner:
 
     def fill_precip_by_distribution(self, df):
         # 针对降水量，缺失时用同站点同月的经验分布采样填充
-        col = 'precipitation'
-        for (station, month), group in df.groupby(['station_id', 'month']):
-            valid = group[col].dropna()
-            if len(valid) > 0:
-                sampled = np.random.choice(valid, size=group[col].isna().sum(), replace=True)
-                df.loc[group.index[group[col].isna()], col] = sampled
+        # 处理1小时降水量
+        for col in ['precipitation_1h', 'precipitation_6h']:
+            if col in df.columns:
+                for (station, month), group in df.groupby(['station_id', 'month']):
+                    valid = group[col].dropna()
+                    if len(valid) > 0:
+                        sampled = np.random.choice(valid, size=group[col].isna().sum(), replace=True)
+                        df.loc[group.index[group[col].isna()], col] = sampled
         return df
 
     def handle_missing_values(self, df, numeric_cols=None, categorical_cols=None, date_cols=None, smooth_fill_cols=None):
@@ -143,8 +145,10 @@ class DataCleaner:
                     print(f"对列 {col} 采用平滑插值+分组中位数填充...")
                     df_cleaned = self.smooth_fill(df_cleaned, col)
             # 降水量分布采样
-            if 'precipitation' in smooth_fill_cols and 'precipitation' in df_cleaned.columns:
-                if df_cleaned['precipitation'].isnull().any():
+            precip_cols = [col for col in smooth_fill_cols if 'precipitation' in col]
+            if precip_cols and any(col in df_cleaned.columns for col in precip_cols):
+                has_missing = any(df_cleaned[col].isnull().any() for col in precip_cols if col in df_cleaned.columns)
+                if has_missing:
                     print("对降水量采用分布采样填充...")
                     df_cleaned = self.fill_precip_by_distribution(df_cleaned)
 
@@ -245,9 +249,9 @@ class DataCleaner:
 
         # 处理缺失值 - 平滑填充气象变量
         numeric_cols = ['temperature', 'dew_point', 'pressure', 'wind_direction',
-                       'wind_speed', 'cloud_cover', 'precipitation']
+                       'wind_speed', 'cloud_cover', 'precipitation_1h', 'precipitation_6h']
         date_cols = ['datetime']
-        smooth_fill_cols = ['temperature', 'dew_point', 'pressure', 'wind_speed', 'cloud_cover', 'precipitation']
+        smooth_fill_cols = ['temperature', 'dew_point', 'pressure', 'wind_speed', 'cloud_cover', 'precipitation_1h', 'precipitation_6h']
 
         # 若无station_id/month则补充
         if 'month' not in df.columns:
@@ -258,8 +262,8 @@ class DataCleaner:
 
         df_cleaned = self.handle_missing_values(df, numeric_cols=numeric_cols, date_cols=date_cols, smooth_fill_cols=smooth_fill_cols)
 
-        # 处理异常值 - 排除precipitation列
-        outlier_cols = [c for c in numeric_cols if c != 'precipitation']
+        # 处理异常值 - 排除降水量列
+        outlier_cols = [c for c in numeric_cols if 'precipitation' not in c]
         df_cleaned = self.handle_outliers(df_cleaned, numeric_cols=outlier_cols)
 
         # 保存清洗后的数据
@@ -580,9 +584,9 @@ class DataCleaner:
         if subway_df is not None:
             # 确保经纬度在西安范围内（经度108-109.5，纬度33.5-35）
             subway_df = subway_df[
-                (subway_df['longitude'] > 108) & 
-                (subway_df['longitude'] < 109.5) & 
-                (subway_df['latitude'] > 33.5) & 
+                (subway_df['longitude'] > 108) &
+                (subway_df['longitude'] < 109.5) &
+                (subway_df['latitude'] > 33.5) &
                 (subway_df['latitude'] < 35)
             ]
             print(f"地铁站点数据清洗完成，共 {len(subway_df)} 条记录")
@@ -643,9 +647,9 @@ class DataCleaner:
         if bus_df is not None:
             # 确保经纬度在西安范围内（经度108-109.5，纬度33.5-35）
             bus_df = bus_df[
-                (bus_df['longitude'] > 108) & 
-                (bus_df['longitude'] < 109.5) & 
-                (bus_df['latitude'] > 33.5) & 
+                (bus_df['longitude'] > 108) &
+                (bus_df['longitude'] < 109.5) &
+                (bus_df['latitude'] > 33.5) &
                 (bus_df['latitude'] < 35)
             ]
             print(f"公交站点数据清洗完成，共 {len(bus_df)} 条记录")

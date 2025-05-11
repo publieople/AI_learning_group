@@ -36,12 +36,26 @@ class DataPreprocessor:
         """
         处理气象数据（附件1）
 
+        根据气象数据表格定义，处理以下字段：
+        - YEAR: 年份
+        - MONTH: 月份
+        - DAY: 日期
+        - HOUR: 小时（UTC时间）
+        - TEMP: 气温，精度0.1°C，需要除以10转换为实际值
+        - DEW: 露点温度，精度0.1°C，需要除以10
+        - SLP: 海平面气压，单位百帕(hPa)，精度0.1，需要除以10
+        - WDIR: 风向，范围0-360°，表示风来自哪个方向
+        - WSPD: 风速，单位m/s，精度0.1，需要除以10
+        - SKY: 云量代码，范围0-8（0=晴空，8=完全云层）
+        - PRECIP1: 1小时降水量，单位mm，如果数据缺失一般为-9.99
+        - PRECIP6: 6小时降水量，单位mm，一般用于累积降水分析
+
         参数:
         years: 需要处理的年份列表，如果为None则处理所有年份
         cities: 需要处理的城市站点列表，如果为None则处理所有站点
 
         返回:
-        处理后的气象数据DataFrame
+        处理后的气象数据DataFrame，包含所有解析后的气象要素
         """
         print("开始处理气象数据...")
 
@@ -106,40 +120,59 @@ class DataPreprocessor:
                                 if not all(x.isdigit() for x in [year, month, day, hour]):
                                     continue
 
-                                # 温度、露点、气压、风向、风速、云量、降水量
+                                # TEMP: 气温，精度0.1°C，需要除以10
                                 temp = float(parts[4]) / 10.0 if parts[4] != '-9999' else np.nan
+                                # DEW: 露点温度，精度0.1°C，需要除以10
                                 dewp = float(parts[5]) / 10.0 if parts[5] != '-9999' else np.nan
+                                # SLP: 海平面气压，单位百帕(hPa)，精度0.1，需要除以10
                                 pressure = float(parts[6]) / 10.0 if parts[6] != '-9999' else np.nan
+                                # WDIR: 风向，范围0-360°
                                 wind_dir = float(parts[7]) if parts[7] != '-9999' else np.nan
+                                # WSPD: 风速，单位m/s，精度0.1，需要除以10
                                 wind_speed = float(parts[8]) / 10.0 if parts[8] != '-9999' else np.nan
 
                                 # 云量和降水量处理
+                                # SKY: 云量代码，范围0-8（0=晴空，8=完全云层）
                                 cloud = np.nan
-                                precip = np.nan
+                                # PRECIP1: 1小时降水量，单位mm
+                                precip1h = np.nan
+                                # PRECIP6: 6小时降水量，单位mm
+                                precip6h = np.nan
 
-                                # 检查是否有云量数据
+                                # 检查是否有云量数据（第10列，索引9）
                                 if len(parts) > 9:
                                     try:
                                         cloud = float(parts[9]) if parts[9] != '-9999' else np.nan
                                     except ValueError:
                                         cloud = np.nan
 
-                                # 检查是否有降水量数据（第12列，索引11）
+                                # 检查是否有1小时降水量数据（第12列，索引11）
                                 if len(parts) > 11:
                                     try:
-                                        precip_str = parts[11].strip()
-                                        if precip_str != '-9999':
-                                            # 降水量数据需要除以10转换为毫米
-                                            precip = float(precip_str) / 10.0
+                                        precip1h_str = parts[11].strip()
+                                        if precip1h_str != '-9999':
+                                            # 降水量数据，如果数据缺失一般为-9.99
+                                            precip1h = float(precip1h_str) / 10.0
                                             precip_stats['total'] += 1
-                                            if precip > 0:
+                                            if precip1h > 0:
                                                 precip_stats['non_zero'] += 1
                                             else:
                                                 precip_stats['zero'] += 1
                                         else:
-                                            precip = np.nan
+                                            precip1h = np.nan
                                     except (ValueError, IndexError) as e:
-                                        precip = np.nan
+                                        precip1h = np.nan
+
+                                # 检查是否有6小时降水量数据（第13列，索引12）
+                                if len(parts) > 12:
+                                    try:
+                                        precip6h_str = parts[12].strip()
+                                        if precip6h_str != '-9999':
+                                            precip6h = float(precip6h_str) / 10.0
+                                        else:
+                                            precip6h = np.nan
+                                    except (ValueError, IndexError) as e:
+                                        precip6h = np.nan
 
                                 # 数据合理性检查 - 放宽条件
                                 # 1. 只检查非空值
@@ -150,7 +183,8 @@ class DataPreprocessor:
                                     (np.isnan(wind_dir) or 0 <= wind_dir <= 360) and  # 风向范围：0-360度
                                     (np.isnan(wind_speed) or 0 <= wind_speed <= 100) and  # 风速范围：0-100米/秒
                                     (np.isnan(cloud) or 0 <= cloud <= 8) and  # 云量范围：0-8
-                                    (np.isnan(precip) or 0 <= precip <= 1000)):  # 降水量范围：0-1000毫米
+                                    (np.isnan(precip1h) or -10 <= precip1h <= 1000) and  # 1小时降水量范围：-10(缺失)到1000毫米
+                                    (np.isnan(precip6h) or -10 <= precip6h <= 1000)):  # 6小时降水量范围：-10(缺失)到1000毫米
 
                                     # 构建数据行
                                     data_row = {
@@ -162,7 +196,8 @@ class DataPreprocessor:
                                         'wind_direction': wind_dir,
                                         'wind_speed': wind_speed,
                                         'cloud_cover': cloud,
-                                        'precipitation': precip
+                                        'precipitation_1h': precip1h,
+                                        'precipitation_6h': precip6h
                                     }
                                     all_data.append(data_row)
                                     valid_lines += 1
@@ -203,7 +238,7 @@ class DataPreprocessor:
         print(f"非零降水量记录数: {precip_stats['non_zero']}")
         print(f"零降水量记录数: {precip_stats['zero']}")
         print("\n各气象要素的统计信息:")
-        print(df[['temperature', 'dew_point', 'pressure', 'wind_speed', 'cloud_cover', 'precipitation']].describe())
+        print(df[['temperature', 'dew_point', 'pressure', 'wind_speed', 'cloud_cover', 'precipitation_1h', 'precipitation_6h']].describe())
 
         # 保存处理后的数据
         output_file = os.path.join(self.output_dir, "附件1_meteorological_data.csv")

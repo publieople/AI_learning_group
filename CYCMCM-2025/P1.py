@@ -182,7 +182,7 @@ class KangYangResourceAnalysis:
         plt.tight_layout()
 
         # 保存图表
-        output_dir = "output"
+        output_dir = "P1"
         if not os.path.exists(output_dir):
             os.makedirs(output_dir)
         plt.savefig(os.path.join(output_dir, 'resource_density_analysis.png'), dpi=300, bbox_inches='tight')
@@ -329,7 +329,7 @@ class KangYangResourceAnalysis:
         plt.tight_layout()
 
         # 保存图表
-        output_dir = "output"
+        output_dir = "P1"
         if not os.path.exists(output_dir):
             os.makedirs(output_dir)
         plt.savefig(os.path.join(output_dir, 'resource_coverage_analysis.png'), dpi=300, bbox_inches='tight')
@@ -534,7 +534,7 @@ class KangYangResourceAnalysis:
         plt.tight_layout()
 
         # 保存图表
-        output_dir = "output"
+        output_dir = "P1"
         if not os.path.exists(output_dir):
             os.makedirs(output_dir)
         plt.savefig(os.path.join(output_dir, 'resource_gaps_analysis.png'), dpi=300, bbox_inches='tight')
@@ -655,7 +655,7 @@ class KangYangResourceAnalysis:
         plt.legend()
 
         # 保存图表
-        output_dir = "output"
+        output_dir = "P1"
         if not os.path.exists(output_dir):
             os.makedirs(output_dir)
         plt.savefig(os.path.join(output_dir, 'city_clusters.png'))
@@ -1065,7 +1065,7 @@ class KangYangResourceAnalysis:
         plt.tight_layout()
 
         # 保存综合分析图表
-        output_dir = "output"
+        output_dir = "P1"
         if not os.path.exists(output_dir):
             os.makedirs(output_dir)
         plt.savefig(os.path.join(output_dir, 'comprehensive_analysis.png'), dpi=300, bbox_inches='tight')
@@ -1082,7 +1082,7 @@ class KangYangResourceAnalysis:
             print("请先运行分析功能")
             return
 
-        output_dir = "output"
+        output_dir = "P1"
         if not os.path.exists(output_dir):
             os.makedirs(output_dir)
 
@@ -1497,7 +1497,7 @@ class KangYangResourceAnalysis:
         plt.tight_layout()
 
         # 保存图表
-        output_dir = "output"
+        output_dir = "P1"
         if not os.path.exists(output_dir):
             os.makedirs(output_dir)
         plt.savefig(os.path.join(output_dir, 'resource_growth_trend.png'))

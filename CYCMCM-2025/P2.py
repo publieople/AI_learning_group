@@ -44,7 +44,6 @@ def load_and_preprocess_data():
     df['每万人公园数'] = df['公园个数(个)'] / df['常住人口(万人)'] * 10000
     df['每万人文化机构数'] = df['文化机构(个)'] / df['常住人口(万人)'] * 10000
     df['人均公园绿地面积'] = df['公园绿地面积(万公顷)'] * 10000 / df['常住人口(万人)']
-
     return df
 
 # 2. 构建评价指标体系
@@ -93,9 +92,6 @@ def normalize_data(df, indicators):
             normalized_df[indicator] = 1 - scaler.fit_transform(df[[indicator]])
 
     return normalized_df
-
-# [其余函数保持不变：calculate_weights(), calculate_scores(), visualize_results(),
-#  evaluate_model(), analyze_results()]
 
 # 4. 确定指标权重
 def calculate_weights(indicators):
@@ -149,7 +145,6 @@ def calculate_weights(indicators):
 
     return dimension_weights, indicator_weights
 
-# 修改calculate_scores函数以适应新的权重结构
 def calculate_scores(normalized_df, indicators, dimension_weights, indicator_weights):
     scores = pd.DataFrame()
     scores['年份'] = normalized_df['年份']
@@ -164,11 +159,11 @@ def calculate_scores(normalized_df, indicators, dimension_weights, indicator_wei
     # 计算综合得分
     scores['综合得分'] = 0
     for i, dimension in enumerate(indicators):
-        scores['综合得分'] += scores[dimension] * dimension_weights[i]
+        scores['综合得分'] += scores[dimension]
 
     return scores
 
-# 6. 结果可视化
+# 5. 结果可视化
 def visualize_results(scores, indicators, df):
     plt.figure(figsize=(12, 6))
 
@@ -241,7 +236,7 @@ def visualize_results(scores, indicators, df):
     plt.savefig('各指标与综合得分关系矩阵.png', dpi=300, bbox_inches='tight')
     plt.show()
 
-# 7. 模型评价
+# 6. 模型评价
 def evaluate_model(scores, normalized_df, indicators, dimension_weights, indicator_weights):
     """
     模型评价函数，包括一致性检验、敏感性分析和稳定性测试
@@ -264,12 +259,11 @@ def evaluate_model(scores, normalized_df, indicators, dimension_weights, indicat
         [1 / 2, 2, 1, 1]
     ])
     CR = check_consistency(dimension_matrix)
-    print(f"\n模型一致性检验结果:")
-    print(f"一致性比率CR = {CR:.4f}")
-    print("CR < 0.1，通过一致性检验" if CR < 0.1 else "CR ≥ 0.1，未通过一致性检验")
+    consistency_result = f"模型一致性检验结果:\n一致性比率CR = {CR:.4f}\n"
+    consistency_result += "CR < 0.1，通过一致性检验" if CR < 0.1 else "CR ≥ 0.1，未通过一致性检验"
 
     # 2. 敏感性分析 - 权重变化对结果的影响
-    print("\n敏感性分析:")
+    sensitivity_result = "\n敏感性分析:\n"
     original_scores = scores[scores['年份'] == 2023]['综合得分'].values[0]
 
     # 测试康养资源丰富度权重变化±20%的影响
@@ -279,26 +273,25 @@ def evaluate_model(scores, normalized_df, indicators, dimension_weights, indicat
         temp_weights = temp_weights / temp_weights.sum()  # 重新归一化
         temp_scores = calculate_scores(normalized_df, indicators, temp_weights, indicator_weights)
         changed_score = temp_scores[temp_scores['年份'] == 2023]['综合得分'].values[0]
-        print(f"康养资源权重变化{change * 100:.0f}% → 综合得分变化: {changed_score - original_scores:.4f} "
-              f"({(changed_score - original_scores) / original_scores * 100:.2f}%)")
+        sensitivity_result += f"康养资源权重变化{change * 100:.0f}% → 综合得分变化: {changed_score - original_scores:.4f} "
+        sensitivity_result += f"({(changed_score - original_scores) / original_scores * 100:.2f}%)\n"
 
     # 3. 稳定性测试 - 指标增减测试
-    print("\n稳定性测试:")
+    stability_result = "\n稳定性测试:\n"
     # 测试移除一个指标的影响
     test_indicators = indicators.copy()
-    removed_indicator = '每万人文化机构数'
+    removed_indicator = '每万人医疗床位数'
     test_indicators['康养资源丰富度'].remove(removed_indicator)
     temp_scores = calculate_scores(normalized_df, test_indicators, dimension_weights, indicator_weights)
     changed_score = temp_scores[temp_scores['年份'] == 2023]['综合得分'].values[0]
-    print(f"移除指标'{removed_indicator}' → 综合得分变化: {changed_score - original_scores:.4f} "
-          f"({(changed_score - original_scores) / original_scores * 100:.2f}%)")
+    stability_result += f"移除指标'{removed_indicator}' → 综合得分变化: {changed_score - original_scores:.4f} "
+    stability_result += f"({(changed_score - original_scores) / original_scores * 100:.2f}%)\n"
 
     # 4. 模型拟合度评估 - 与实际数据的相关性
     actual_data = normalized_df[['人均寿命(岁)']].values.flatten()
     model_scores = scores['综合得分'].values
     correlation = np.corrcoef(actual_data, model_scores)[0, 1]
-    print(f"\n模型拟合度评估:")
-    print(f"综合得分与实际寿命数据的相关系数: {correlation:.4f}")
+    fit_result = f"\n模型拟合度评估:\n综合得分与实际寿命数据的相关系数: {correlation:.4f}"
 
     # 5. 可视化模型评价结果
     plt.figure(figsize=(12, 5))
@@ -337,49 +330,124 @@ def evaluate_model(scores, normalized_df, indicators, dimension_weights, indicat
     plt.savefig('模型评价结果.png', dpi=300, bbox_inches='tight')
     plt.show()
 
-# 8. 分析与建议
-def analyze_results(scores, df, indicators):
+    return consistency_result + sensitivity_result + stability_result + fit_result
+
+# 7. 生成分析报告
+def generate_report(scores, df, indicators, dimension_weights, indicator_weights):
     latest_year = scores['年份'].max()
     latest_score = scores[scores['年份'] == latest_year].iloc[0]
 
-    print(f"\n上海市{latest_year}年康养城市综合评价结果:")
-    print(f"综合得分: {latest_score['综合得分']:.3f}")
-    for dimension in indicators:
-        print(f"{dimension}得分: {latest_score[dimension]:.3f}")
-
-    # 找出优势与不足
+    # 找出优势与不足维度
     max_dim = max(indicators.keys(), key=lambda x: latest_score[x])
     min_dim = min(indicators.keys(), key=lambda x: latest_score[x])
 
-    print(f"\n优势维度: {max_dim} (得分: {latest_score[max_dim]:.3f})")
-    print(f"不足维度: {min_dim} (得分: {latest_score[min_dim]:.3f})")
-
-    # 提出改进建议
-    print("\n改进建议:")
-    if min_dim == '康养资源丰富度':
-        print("- 增加医疗和养老设施建设，特别是在人口密集区域")
-        print("- 提升公园绿地和文化设施的可达性")
-        print("- 优化养老机构布局，提高服务质量")
-    elif min_dim == '居民健康状况':
-        print("- 加强慢性病管理和预防保健服务")
-        print("- 推广健康生活方式，提高居民健康素养")
-        print("- 完善老年健康服务体系")
-    elif min_dim == '环境质量':
-        print("- 进一步提升绿化覆盖率，增加城市绿地")
-        print("- 加强空气污染治理，改善空气质量")
-        print("- 优化水资源管理，提高用水效率")
-    elif min_dim == '经济发展水平':
-        print("- 促进经济高质量发展，提高居民收入")
-        print("- 增加对康养产业的财政投入")
-        print("- 推动康养产业与其他产业融合发展")
-
-    # 展示趋势变化
-    print("\n发展趋势分析(2014-2023):")
+    # 计算年均增长率
+    growth_rates = {}
     for dimension in indicators:
         growth = (latest_score[dimension] - scores[scores['年份'] == 2014][dimension].values[0]) / 10
-        print(f"{dimension}年均增长率: {growth:.2%}")
+        growth_rates[dimension] = growth
 
-# 主程序
+    # 进行模型评价
+    model_evaluation_result = evaluate_model(scores, df, indicators, dimension_weights, indicator_weights)
+
+    # 生成文本报告
+    report = """
+上海市康养城市发展综合评价报告 ({0})
+=================================================
+
+一、综合得分
+综合得分: {1:.3f}
+
+二、各维度得分
+{2}
+
+三、维度评价
+1. 优势维度: {3} (得分: {4:.3f})
+   该维度表现最佳，是上海市康养城市发展的主要优势领域。
+
+2. 不足维度: {5} (得分: {6:.3f})
+   该维度表现相对较弱，是需要重点改进的方向。
+
+四、改进建议
+{7}
+
+五、详细指标权重
+{8}
+
+六、发展趋势分析 (2014-{0})
+从长期发展趋势来看，各维度表现如下：
+{9}
+
+七、模型验证
+{10}
+
+报告生成时间: {11}
+    """.format(
+        latest_year,
+        latest_score['综合得分'],
+        '\n'.join([
+            "- {0}: 得分{1:.3f}, 年均增长率{2:.2%}, 权重{3:.3f}".format(
+                dim,
+                latest_score[dim],
+                growth_rates[dim],
+                dimension_weights[list(indicators.keys()).index(dim)]
+            ) for dim in indicators
+        ]),
+        max_dim,
+        latest_score[max_dim],
+        min_dim,
+        latest_score[min_dim],
+        '\n'.join([
+            "- {0}".format(s) for s in get_improvement_suggestions(min_dim)
+        ]),
+        '\n'.join([
+            "- {0} - {1}: 权重{2:.4f} ({3})".format(
+                dim,
+                ind,
+                indicator_weights[dim][ind],
+                "逆向" if ind in ['老龄人口占比(%)', '新生儿死亡率(%)'] else "正向"
+            ) for dim in indicators for ind in indicators[dim]
+        ]),
+        '\n'.join([
+            "- {0}年均增长率: {1:.2%}".format(dim, growth_rates[dim])
+            for dim in indicators
+        ]),
+        model_evaluation_result,
+        pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S')
+    )
+
+    # 保存报告到文本文件
+    with open('康养城市评价报告.txt', 'w', encoding='utf-8') as f:
+        f.write(report)
+
+    print("分析报告已生成: 康养城市评价报告.txt")
+
+def get_improvement_suggestions(min_dim):
+    suggestions = {
+        '康养资源丰富度': [
+            "增加医疗和养老设施建设，特别是在人口密集区域",
+            "提升公园绿地和文化设施的可达性",
+            "优化养老机构布局，提高服务质量"
+        ],
+        '居民健康状况': [
+            "加强慢性病管理和预防保健服务",
+            "推广健康生活方式，提高居民健康素养",
+            "完善老年健康服务体系"
+        ],
+        '环境质量': [
+            "进一步提升绿化覆盖率，增加城市绿地",
+            "加强空气污染治理，改善空气质量",
+            "优化水资源管理，提高用水效率"
+        ],
+        '经济发展水平': [
+            "促进经济高质量发展，提高居民收入",
+            "增加对康养产业的财政投入",
+            "推动康养产业与其他产业融合发展"
+        ]
+    }
+
+    return suggestions[min_dim]
+
 if __name__ == "__main__":
     # 1. 加载和预处理数据
     df = load_and_preprocess_data()
@@ -393,7 +461,5 @@ if __name__ == "__main__":
     scores = calculate_scores(normalized_df, indicators, dimension_weights, indicator_weights)
     # 6. 可视化结果
     visualize_results(scores, indicators, df)
-    # 7. 模型评价
-    evaluate_model(scores, normalized_df, indicators, dimension_weights, indicator_weights)
-    # 8. 分析与建议
-    analyze_results(scores, df, indicators)
+    # 7. 生成分析报告
+    generate_report(scores, df, indicators, dimension_weights, indicator_weights)

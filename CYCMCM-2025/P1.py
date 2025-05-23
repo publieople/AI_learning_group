@@ -14,6 +14,9 @@ import warnings
 import os
 warnings.filterwarnings('ignore')
 
+plt.rcParams['font.sans-serif'] = ['SimHei']
+plt.rcParams['axes.unicode_minus'] = False
+
 class KangYangResourceAnalysis:
     def __init__(self):
         self.population_data = None

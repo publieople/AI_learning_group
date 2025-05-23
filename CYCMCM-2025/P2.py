@@ -159,7 +159,7 @@ def calculate_scores(normalized_df, indicators, dimension_weights, indicator_wei
     # 计算综合得分
     scores['综合得分'] = 0
     for i, dimension in enumerate(indicators):
-        scores['综合得分'] += scores[dimension]
+        scores['综合得分'] += scores[dimension] * dimension_weights[i]
 
     return scores
 
@@ -333,6 +333,7 @@ def evaluate_model(scores, normalized_df, indicators, dimension_weights, indicat
     return consistency_result + sensitivity_result + stability_result + fit_result
 
 # 7. 生成分析报告
+# 新增函数：生成分析报告
 def generate_report(scores, df, indicators, dimension_weights, indicator_weights):
     latest_year = scores['年份'].max()
     latest_score = scores[scores['年份'] == latest_year].iloc[0]
@@ -346,9 +347,6 @@ def generate_report(scores, df, indicators, dimension_weights, indicator_weights
     for dimension in indicators:
         growth = (latest_score[dimension] - scores[scores['年份'] == 2014][dimension].values[0]) / 10
         growth_rates[dimension] = growth
-
-    # 进行模型评价
-    model_evaluation_result = evaluate_model(scores, df, indicators, dimension_weights, indicator_weights)
 
     # 生成文本报告
     report = """
@@ -378,10 +376,7 @@ def generate_report(scores, df, indicators, dimension_weights, indicator_weights
 从长期发展趋势来看，各维度表现如下：
 {9}
 
-七、模型验证
-{10}
-
-报告生成时间: {11}
+报告生成时间: {10}
     """.format(
         latest_year,
         latest_score['综合得分'],
@@ -412,7 +407,6 @@ def generate_report(scores, df, indicators, dimension_weights, indicator_weights
             "- {0}年均增长率: {1:.2%}".format(dim, growth_rates[dim])
             for dim in indicators
         ]),
-        model_evaluation_result,
         pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S')
     )
 
@@ -462,5 +456,7 @@ if __name__ == "__main__":
     scores = calculate_scores(normalized_df, indicators, dimension_weights, indicator_weights)
     # 6. 可视化结果
     visualize_results(scores, indicators, df)
-    # 7. 生成分析报告
+    # 7. 模型评价
+    evaluate_model(scores, normalized_df, indicators, dimension_weights, indicator_weights)
+    # 8. 生成分析报告
     generate_report(scores, df, indicators, dimension_weights, indicator_weights)

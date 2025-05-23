@@ -1183,13 +1183,13 @@ class KangYangResourceAnalysis:
 
             # 7. 主要发现
             f.write("## 主要发现\n\n")
-            f.write("### 优势方面\n")
+            f.write("### 优势方面\n\n")
             f.write("1. **医疗资源相对充足**: 医疗卫生机构数量和床位数持续增长\n")
             f.write("2. **经济基础雄厚**: 人均GDP水平较高，为康养产业发展提供支撑\n")
             f.write("3. **环境质量稳定**: 绿化覆盖率保持在较高水平\n")
             f.write("4. **人均寿命领先**: 达到84.18岁，位居全国前列\n\n")
 
-            f.write("### 不足方面\n")
+            f.write("### 不足方面\n\n")
             if 'resource_gaps' in self.results:
                 urgent_needs = self.results['resource_gaps']['urgent_needs']
                 if urgent_needs:
@@ -1204,34 +1204,34 @@ class KangYangResourceAnalysis:
             f.write("## 优化建议\n\n")
 
             if 'resource_gaps' in self.results and self.results['resource_gaps']['suggestions']:
-                f.write("### 短期建议（1-2年）\n")
+                f.write("### 短期建议（1-2年）\n\n")
                 suggestions = self.results['resource_gaps']['suggestions']
                 for i, suggestion in enumerate(suggestions[:3], 1):
                     f.write(f"{i}. {suggestion}\n")
 
-                f.write("\n### 中期建议（3-5年）\n")
+                f.write("\n### 中期建议（3-5年）\n\n")
                 f.write("1. 建立康养资源配置标准化体系\n")
                 f.write("2. 推进医养结合服务模式创新\n")
                 f.write("3. 完善康养产业政策支持体系\n")
 
-                f.write("\n### 长期建议（5-10年）\n")
+                f.write("\n### 长期建议（5-10年）\n\n")
                 f.write("1. 构建智慧康养服务平台\n")
                 f.write("2. 打造康养产业集群\n")
                 f.write("3. 建设国际一流康养城市\n\n")
 
             # 9. 实施路径
             f.write("## 实施路径\n\n")
-            f.write("### 政策保障\n")
+            f.write("### 政策保障\n\n")
             f.write("- 制定康养城市建设专项规划\n")
             f.write("- 完善康养产业扶持政策\n")
             f.write("- 建立跨部门协调机制\n\n")
 
-            f.write("### 资金支持\n")
+            f.write("### 资金支持\n\n")
             f.write("- 设立康养产业发展基金\n")
             f.write("- 引导社会资本参与\n")
             f.write("- 争取国家专项资金支持\n\n")
 
-            f.write("### 监测评估\n")
+            f.write("### 监测评估\n\n")
             f.write("- 建立康养资源动态监测系统\n")
             f.write("- 定期开展评估和调整\n")
             f.write("- 完善绩效考核机制\n\n")
@@ -1243,8 +1243,8 @@ class KangYangResourceAnalysis:
             f.write("建议政府部门根据本报告提出的优化建议，制定具体的实施方案，")
             f.write("确保康养城市建设目标的实现。\n\n")
 
-            f.write("---\n")
-            f.write(f"*报告生成时间: {pd.Timestamp.now().strftime('%Y年%m月%d日')}*\n")
+            f.write("---\n\n")
+            f.write(f"### 报告生成时间\n\n{pd.Timestamp.now().strftime('%Y年%m月%d日')}\n")
 
         print(f"\n=== 分析报告已生成 ===")
         print(f"报告文件: {report_file}")

@@ -1,3 +1,4 @@
+import os
 import pandas as pd
 import numpy as np
 from sklearn.preprocessing import MinMaxScaler
@@ -164,7 +165,8 @@ def calculate_scores(normalized_df, indicators, dimension_weights, indicator_wei
     return scores
 
 # 5. 结果可视化
-def visualize_results(scores, indicators, df):
+def visualize_results(scores, indicators, df, output_dir='./P2'):
+    os.makedirs(output_dir, exist_ok=True)
     plt.figure(figsize=(12, 6))
 
     # 各维度得分趋势
@@ -179,8 +181,7 @@ def visualize_results(scores, indicators, df):
     plt.grid(True)
     plt.xticks(scores['年份'])
     plt.tight_layout()
-    plt.savefig('上海市康养城市发展综合评价(2014-2023).png', dpi=300, bbox_inches='tight')
-    plt.show()
+    plt.savefig(f'{output_dir}/上海市康养城市发展综合评价(2014-2023).png', dpi=300, bbox_inches='tight')
 
     # 2023年各维度得分雷达图
     categories = list(indicators.keys())
@@ -196,8 +197,7 @@ def visualize_results(scores, indicators, df):
     plt.title('2023年上海市康养城市各维度评价', y=1.1)
     lines, labels = plt.thetagrids(np.degrees(label_loc[:-1]), labels=categories[:-1])
     plt.legend(loc='upper right')
-    plt.savefig('2023年上海市康养城市各维度评价.png', dpi=300, bbox_inches='tight')
-    plt.show()
+    plt.savefig(f'{output_dir}/2023年上海市康养城市各维度评价.png', dpi=300, bbox_inches='tight')
 
     # 3. 新增：各指标随时间变化的趋势图
     plt.figure(figsize=(14, 10))
@@ -208,16 +208,14 @@ def visualize_results(scores, indicators, df):
         plt.title(indicator)
         plt.grid(True)
     plt.tight_layout()
-    plt.savefig('各指标随时间变化趋势.png', dpi=300, bbox_inches='tight')
-    plt.show()
+    plt.savefig(f'{output_dir}/各指标随时间变化趋势.png', dpi=300, bbox_inches='tight')
 
     # 4. 2023年各维度得分占比饼图
     plt.figure(figsize=(8, 8))
     latest_scores = scores[scores['年份'] == 2023][categories[:-1]].iloc[0]
     plt.pie(latest_scores, labels=latest_scores.index, autopct='%1.1f%%', startangle=90)
     plt.title('2023年各维度得分占比')
-    plt.savefig('2023年各维度得分占比.png', dpi=300, bbox_inches='tight')
-    plt.show()
+    plt.savefig(f'{output_dir}/2023年各维度得分占比.png', dpi=300, bbox_inches='tight')
 
     # 5. 各维度得分与综合得分的相关性热力图
     plt.figure(figsize=(8, 6))
@@ -225,22 +223,21 @@ def visualize_results(scores, indicators, df):
     sns.heatmap(correlation, annot=True, cmap='coolwarm', center=0)
     plt.title('各维度得分相关性热力图')
     plt.tight_layout()
-    plt.savefig('各维度得分相关性热力图.png', dpi=300, bbox_inches='tight')
-    plt.show()
+    plt.savefig(f'{output_dir}/各维度得分相关性热力图.png', dpi=300, bbox_inches='tight')
 
     # 6. 各指标与综合得分的散点图矩阵
     selected_indicators = ['每万人医疗床位数', '人均寿命(岁)', '建成区绿化覆盖率(%)',
                            '人均生产总值(万元)', '综合得分']
     sns.pairplot(scores.join(df[selected_indicators[:-1]]), vars=selected_indicators)
     plt.suptitle('各指标与综合得分关系矩阵', y=1.02)
-    plt.savefig('各指标与综合得分关系矩阵.png', dpi=300, bbox_inches='tight')
-    plt.show()
+    plt.savefig(f'{output_dir}/各指标与综合得分关系矩阵.png', dpi=300, bbox_inches='tight')
 
 # 6. 模型评价
-def evaluate_model(scores, normalized_df, indicators, dimension_weights, indicator_weights):
+def evaluate_model(scores, normalized_df, indicators, dimension_weights, indicator_weights, output_dir='./P2'):
     """
     模型评价函数，包括一致性检验、敏感性分析和稳定性测试
     """
+    os.makedirs(output_dir, exist_ok=True)
 
     # 1. AHP一致性检验
     def check_consistency(matrix):
@@ -327,14 +324,14 @@ def evaluate_model(scores, normalized_df, indicators, dimension_weights, indicat
     plt.grid(True)
 
     plt.tight_layout()
-    plt.savefig('模型评价结果.png', dpi=300, bbox_inches='tight')
-    plt.show()
+    plt.savefig(f'{output_dir}/模型评价结果.png', dpi=300, bbox_inches='tight')
 
     return consistency_result + sensitivity_result + stability_result + fit_result
 
 # 7. 生成分析报告
 # 新增函数：生成分析报告
-def generate_report(scores, df, indicators, dimension_weights, indicator_weights):
+def generate_report(scores, df, indicators, dimension_weights, indicator_weights, output_dir='./P2'):
+    os.makedirs(output_dir, exist_ok=True)
     latest_year = scores['年份'].max()
     latest_score = scores[scores['年份'] == latest_year].iloc[0]
 
@@ -350,34 +347,42 @@ def generate_report(scores, df, indicators, dimension_weights, indicator_weights
 
     # 生成文本报告
     report = """
-上海市康养城市发展综合评价报告 ({0})
+# 上海市康养城市发展综合评价报告 ({0})
 =================================================
 
-一、综合得分
+## 一、综合得分
+
 综合得分: {1:.3f}
 
-二、各维度得分
+## 二、各维度得分
+
+
 {2}
 
-三、维度评价
+## 三、维度评价
+
 1. 优势维度: {3} (得分: {4:.3f})
    该维度表现最佳，是上海市康养城市发展的主要优势领域。
 
 2. 不足维度: {5} (得分: {6:.3f})
    该维度表现相对较弱，是需要重点改进的方向。
 
-四、改进建议
+## 四、改进建议
+
 {7}
 
-五、详细指标权重
+## 五、详细指标权重
+
 {8}
 
-六、发展趋势分析 (2014-{0})
+## 六、发展趋势分析 (2014-{0})
+
 从长期发展趋势来看，各维度表现如下：
+
 {9}
 
 报告生成时间: {10}
-    """.format(
+""".format(
         latest_year,
         latest_score['综合得分'],
         '\n'.join([
@@ -411,10 +416,10 @@ def generate_report(scores, df, indicators, dimension_weights, indicator_weights
     )
 
     # 保存报告到文本文件
-    with open('康养城市评价报告.txt', 'w', encoding='utf-8') as f:
+    with open(f'{output_dir}/康养城市评价报告.md', 'w', encoding='utf-8') as f:
         f.write(report)
 
-    print("分析报告已生成: 康养城市评价报告.txt")
+    print("分析报告已生成: 康养城市评价报告.md")
 
 def get_improvement_suggestions(min_dim):
     suggestions = {

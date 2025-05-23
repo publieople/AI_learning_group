@@ -623,39 +623,42 @@ class KangYangResourceAnalysis:
         scaler = StandardScaler()
         data_scaled = scaler.fit_transform(data)
 
-        # 2. KMeans聚类分析
-        n_clusters_range = range(2, 6)
-        silhouette_scores = []
+        # 2. DBSCAN聚类分析
+        # 使用DBSCAN算法，eps为邻域半径，min_samples为形成核心点所需的最小样本数
+        dbscan = DBSCAN(eps=0.5, min_samples=3)
+        self.city_ranking['cluster'] = dbscan.fit_predict(data_scaled)
 
-        for n_clusters in n_clusters_range:
-            kmeans = KMeans(n_clusters=n_clusters, random_state=42)
-            cluster_labels = kmeans.fit_predict(data_scaled)
-            score = silhouette_score(data_scaled, cluster_labels)
-            silhouette_scores.append(score)
+        # 获取聚类数量
+        n_clusters = len(set(self.city_ranking['cluster'])) - (1 if -1 in self.city_ranking['cluster'] else 0)
+        print(f"\n识别出{n_clusters}个聚类")
 
-        # 选择最佳聚类数
-        best_n_clusters = n_clusters_range[np.argmax(silhouette_scores)]
+        # 如果存在噪声点（标记为-1的点），将其重新分配到最近的聚类
+        if -1 in self.city_ranking['cluster'].values:
+            noise_points = self.city_ranking[self.city_ranking['cluster'] == -1]
+            valid_clusters = self.city_ranking[self.city_ranking['cluster'] != -1]
 
-        # 使用最佳聚类数进行聚类
-        kmeans = KMeans(n_clusters=best_n_clusters, random_state=42)
-        self.city_ranking['cluster'] = kmeans.fit_predict(data_scaled)
+            for idx in noise_points.index:
+                point = data_scaled[idx]
+                distances = [np.linalg.norm(point - data_scaled[i])
+                            for i in valid_clusters.index]
+                closest_cluster = valid_clusters.iloc[np.argmin(distances)]['cluster']
+                self.city_ranking.loc[idx, 'cluster'] = closest_cluster
 
         # 3. 分析聚类结果
-        cluster_stats = self.city_ranking.groupby('cluster').agg({
+        # 排除噪声点（-1）进行统计
+        cluster_stats = self.city_ranking[self.city_ranking['cluster'] != -1].groupby('cluster').agg({
             '康养指数': ['count', 'mean', 'std', 'min', 'max']
         }).round(2)
 
         # 4. 可视化聚类结果
         plt.figure(figsize=(10, 6))
-        for i in range(best_n_clusters):
-            cluster_data = self.city_ranking[self.city_ranking['cluster'] == i]
+        # 绘制所有聚类（包括噪声点）
+        unique_clusters = self.city_ranking['cluster'].unique()
+        for cluster_id in unique_clusters:
+            cluster_data = self.city_ranking[self.city_ranking['cluster'] == cluster_id]
+            label = f'聚类 {cluster_id + 1}' if cluster_id != -1 else '噪声点'
             plt.scatter(cluster_data.index, cluster_data['康养指数'],
-                       label=f'聚类 {i+1}')
-
-        plt.title('康养城市聚类分析结果')
-        plt.xlabel('城市排名')
-        plt.ylabel('康养指数')
-        plt.legend()
+                       label=label)
 
         # 保存图表
         output_dir = "P1"
@@ -671,24 +674,27 @@ class KangYangResourceAnalysis:
             cluster_cities = self.city_ranking[self.city_ranking['cluster'] == shanghai_cluster]
 
             print("\n聚类分析结果：")
-            print(f"最佳聚类数：{best_n_clusters}")
             print(f"\n上海市所属聚类：{shanghai_cluster + 1}")
             print(f"同类城市数量：{len(cluster_cities)}")
             print("\n同类城市康养指数统计：")
-            print(cluster_stats.loc[shanghai_cluster])
+            # 检查shanghai_cluster是否存在于cluster_stats的索引中
+            if shanghai_cluster in cluster_stats.index:
+                print(cluster_stats.loc[shanghai_cluster])
+            else:
+                print(f"上海市所属聚类 {shanghai_cluster + 1} 没有有效的统计数据（可能只包含噪声点）")
 
             # 保存同类城市列表
-            cluster_cities_list = cluster_cities[['城市', '康养指数']].sort_values(
-                by='康养指数', ascending=False)
-            cluster_cities_list.to_csv(
-                os.path.join(output_dir, f'cluster_{shanghai_cluster + 1}_cities.csv'),
-                encoding='utf-8-sig', index=False)
+            # 排除噪声点（-1）保存
+            if shanghai_cluster != -1:
+                cluster_cities_list = cluster_cities[['城市', '康养指数']].sort_values(
+                    by='康养指数', ascending=False)
+                cluster_cities_list.to_csv(
+                    os.path.join(output_dir, f'cluster_{shanghai_cluster + 1}_cities.csv'),
+                    encoding='utf-8-sig', index=False)
 
             self.results['cluster_analysis'] = {
-                'best_n_clusters': best_n_clusters,
                 'shanghai_cluster': shanghai_cluster,
-                'cluster_stats': cluster_stats,
-                'silhouette_scores': silhouette_scores
+                'cluster_stats': cluster_stats
             }
 
     def accessibility_analysis(self):

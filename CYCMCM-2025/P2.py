@@ -25,10 +25,17 @@ def load_and_preprocess_data():
         '地区生产总值(亿元)': [47218.7, 44809.1, 43653.2, 38963.3, 37987.6, 36011.8, 32925, 29887, 26887, 25269.8],
         '人均生产总值(万元)': [19.03, 18.05, 17.54, 15.68, 15.33, 14.57, 13.35, 12.14, 10.92, 10.28],
         '用水总量(亿立方米)': [104.8, 105.7, 105.8, 97.5, 100.9, 103.4, 104.8, 104.8, 103.8, 105.9],
-        '空气质量指数': [0.877, 0.871, 0.871, 0.872, 0.847, 0.811, 0.758, 0.754, 0.707, 0.77]
+        '空气质量指数': [0.877, 0.871, 0.871, 0.872, 0.847, 0.811, 0.758, 0.754, 0.707, 0.77],
+        '新生儿死亡率(%)': [2.14, 2.21, 2.3, 2.66, 3.98, 3.52, 3.71, 4.06, 4.58, 4.83],
+        '进出口总额(千美元)': [574150000, 599680000, 604394651, 478776906, 473699895, 485863759, 447349338, 404613805,
+                               423037090, 452602727]
     }
 
     df = pd.DataFrame(data)
+
+    # 转换进出口总额单位（千美元转亿美元）
+    df['进出口总额(亿美元)'] = df['进出口总额(千美元)'] / 10000000
+    df.drop('进出口总额(千美元)', axis=1, inplace=True)
 
     # 计算人均指标
     df['每万人医疗床位数'] = df['医院床位数(万张)'] * 10000 / df['常住人口(万人)']
@@ -53,7 +60,8 @@ def define_indicators():
         ],
         '居民健康状况': [
             '人均寿命(岁)',
-            '老龄人口占比(%)'  # 逆向指标，需要反向处理
+            '老龄人口占比(%)',  # 逆向指标
+            '新生儿死亡率(%)'  # 逆向指标
         ],
         '环境质量': [
             '建成区绿化覆盖率(%)',
@@ -61,7 +69,9 @@ def define_indicators():
             '空气质量指数'
         ],
         '经济发展水平': [
-            '人均生产总值(万元)'
+            '人均生产总值(万元)',
+            '地区生产总值(亿元)',
+            '进出口总额(亿美元)'
         ]
     }
     return indicators
@@ -74,14 +84,18 @@ def normalize_data(df, indicators):
     # 正向指标标准化
     for dimension in indicators:
         for indicator in indicators[dimension]:
-            if indicator not in ['老龄人口占比(%)']:  # 正向指标
+            if indicator not in ['老龄人口占比(%)', '新生儿死亡率(%)']:  # 正向指标
                 normalized_df[indicator] = scaler.fit_transform(df[[indicator]])
 
-    # 逆向指标处理（老龄人口占比）
-    if '老龄人口占比(%)' in df.columns:
-        normalized_df['老龄人口占比(%)'] = 1 - scaler.fit_transform(df[['老龄人口占比(%)']])
+    # 逆向指标处理
+    for indicator in ['老龄人口占比(%)', '新生儿死亡率(%)']:
+        if indicator in df.columns:
+            normalized_df[indicator] = 1 - scaler.fit_transform(df[[indicator]])
 
     return normalized_df
+
+# [其余函数保持不变：calculate_weights(), calculate_scores(), visualize_results(),
+#  evaluate_model(), analyze_results()]
 
 # 4. 确定指标权重
 def calculate_weights(indicators):
@@ -99,17 +113,43 @@ def calculate_weights(indicators):
     weights = np.real(eigenvectors[:, max_index])
     dimension_weights = weights / np.sum(weights)
 
-    # 指标权重（假设各维度内指标权重相等）
-    indicator_weights = {}
-    for dimension in indicators:
-        num_indicators = len(indicators[dimension])
-        indicator_weights[dimension] = [dimension_weights[i] / num_indicators
-                                        for i, dim in enumerate(indicators)
-                                        if dim == dimension][0]
+    # 定义各维度内指标的权重（自定义部分）
+    indicator_weights = {
+        '康养资源丰富度': {
+            '每万人医疗床位数': 0.15,
+            '每万人养老床位数': 0.25,
+            '每万人医疗卫生机构数': 0.3,
+            '每万人公园数': 0.1,
+            '每万人文化机构数': 0.1,
+            '养老机构数量(个)': 0.1
+        },
+        '居民健康状况': {
+            '人均寿命(岁)': 0.7,
+            '老龄人口占比(%)': 0.15,
+            '新生儿死亡率(%)': 0.15
+        },
+        '环境质量': {
+            '建成区绿化覆盖率(%)': 0.5,
+            '人均公园绿地面积': 0.3,
+            '空气质量指数': 0.2
+        },
+        '经济发展水平': {
+            '人均生产总值(万元)': 0.5,
+            '地区生产总值(亿元)': 0.3,
+            '进出口总额(亿美元)': 0.2
+        }
+    }
+
+    # 检查并归一化指标权重
+    for dimension in indicator_weights:
+        total_weight = sum(indicator_weights[dimension].values())
+        for indicator in indicator_weights[dimension]:
+            indicator_weights[dimension][indicator] = indicator_weights[dimension][indicator] / total_weight * \
+                                                      dimension_weights[list(indicators.keys()).index(dimension)]
 
     return dimension_weights, indicator_weights
 
-# 5. 计算综合评价得分
+# 修改calculate_scores函数以适应新的权重结构
 def calculate_scores(normalized_df, indicators, dimension_weights, indicator_weights):
     scores = pd.DataFrame()
     scores['年份'] = normalized_df['年份']
@@ -117,8 +157,8 @@ def calculate_scores(normalized_df, indicators, dimension_weights, indicator_wei
     # 计算各维度得分
     for dimension in indicators:
         dim_score = np.zeros(len(normalized_df))
-        for i, indicator in enumerate(indicators[dimension]):
-            dim_score += normalized_df[indicator] * indicator_weights[dimension]
+        for indicator in indicators[dimension]:
+            dim_score += normalized_df[indicator] * indicator_weights[dimension][indicator]
         scores[dimension] = dim_score
 
     # 计算综合得分

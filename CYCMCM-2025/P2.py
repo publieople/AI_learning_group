@@ -211,7 +211,7 @@ def visualize_results(scores, indicators, df):
     plt.savefig('各指标随时间变化趋势.png', dpi=300, bbox_inches='tight')
     plt.show()
 
-    # 4. 新增：2023年各维度得分占比饼图
+    # 4. 2023年各维度得分占比饼图
     plt.figure(figsize=(8, 8))
     latest_scores = scores[scores['年份'] == 2023][categories[:-1]].iloc[0]
     plt.pie(latest_scores, labels=latest_scores.index, autopct='%1.1f%%', startangle=90)
@@ -219,7 +219,7 @@ def visualize_results(scores, indicators, df):
     plt.savefig('2023年各维度得分占比.png', dpi=300, bbox_inches='tight')
     plt.show()
 
-    # 5. 新增：各维度得分与综合得分的相关性热力图
+    # 5. 各维度得分与综合得分的相关性热力图
     plt.figure(figsize=(8, 6))
     correlation = scores.drop('年份', axis=1).corr()
     sns.heatmap(correlation, annot=True, cmap='coolwarm', center=0)
@@ -228,7 +228,7 @@ def visualize_results(scores, indicators, df):
     plt.savefig('各维度得分相关性热力图.png', dpi=300, bbox_inches='tight')
     plt.show()
 
-    # 6. 新增：各指标与综合得分的散点图矩阵
+    # 6. 各指标与综合得分的散点图矩阵
     selected_indicators = ['每万人医疗床位数', '人均寿命(岁)', '建成区绿化覆盖率(%)',
                            '人均生产总值(万元)', '综合得分']
     sns.pairplot(scores.join(df[selected_indicators[:-1]]), vars=selected_indicators)
@@ -448,6 +448,7 @@ def get_improvement_suggestions(min_dim):
 
     return suggestions[min_dim]
 
+# 修改主程序部分
 if __name__ == "__main__":
     # 1. 加载和预处理数据
     df = load_and_preprocess_data()

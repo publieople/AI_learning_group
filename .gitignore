@@ -177,6 +177,12 @@ cython_debug/
 # d2l
 d2l-zh/
 
+# 竞赛题目
+cumcm2023a/附件.xlsx
+cumcm2023a/A题.pdf
+cumcm2023a/result2.xlsx
+cumcm2023a/result3.xlsx
+
 # MCM
 *.docx
 prompt.md

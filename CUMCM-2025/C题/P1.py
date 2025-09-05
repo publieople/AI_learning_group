@@ -100,7 +100,7 @@ def step_aic(model, threshold=1e-4):
     return step_aic(smf.ols(formula_new, data=data_poly).fit())
 
 model_final = step_aic(model_orth)
-print(model_final.summary().tables[1])          # 仅看系数表
+print(model_final.summary())
 
 # ③ 稳健标准误
 model_final_hc3 = model_final.get_robustcov_results(cov_type='HC3')
